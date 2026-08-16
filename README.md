@@ -44,36 +44,56 @@ DeepSeek Harness（DSH）的 **Token 用量统计** 附属插件：侧边栏底�
 
 ## 安装与使用
 
-### 方式一：作为 DSH workspace 成员（推荐开发方式）
+> ⚠️ **重要**：本插件是 DSH 官方 `ui-usage` / `usage-query` 的**增强替代品**（新增工作区分组、Token 排序、子代理合并）。安装时会**自动禁用官方两个插件**，避免 `ctx.usageQuery` 服务与侧栏入口重复冲突。想恢复官方插件时，把 `cordis.patch.yml` 中 `disabled-` 开头的条目改回即可。
 
-把本仓库 clone 到 DSH 仓库内：
+### 方式一：一键脚本安装（推荐）
+
+在 DSH 源码仓库所在机器上运行（Windows）：
+
+```bat
+install-into-dsh.bat G:\deepseek-harness
+```
+
+脚本会自动完成：检查宿主版本 → clone 插件进 `packages/usage/usage-plugin` → 禁用官方 usage 插件 → 注册本插件 → `pnpm install` → 构建 host/client。
+
+### 方式二：手动安装
 
 ```bash
-git clone https://github.com/<your>/dsh-usage-plugin.git \
+# 1. clone 到 DSH workspace
+git clone https://github.com/Qiongkura/dsh-usage-plugin.git \
   G:/deepseek-harness/packages/usage/usage-plugin
+
+# 2. 禁用官方插件（在 packages/bundle/web-app/cordis.patch.yml）
+#    - id: usage-query
+#      name: '@deepseek-ai/dsh-usage-query'
+#    - id: ui-usage
+#      name: '@deepseek-ai/dsh-client-ui-usage'
+#    改为：
+#    - id: disabled-usage-query
+#      name: '@deepseek-ai/dsh-usage-query'
+#      enabled: false
+#    - id: disabled-ui-usage
+#      name: '@deepseek-ai/dsh-client-ui-usage'
+#      enabled: false
+
+# 3. 注册本插件（同一文件，plugins 列表末尾追加）
+#    - id: usage-plugin
+#      name: 'dsh-usage-plugin'
+
+# 4. 安装并构建
+cd G:/deepseek-harness
+pnpm install
+pnpm run build:lib:host
+pnpm run build:lib:client
+pnpm run build:web        # 如 Web 界面尚未构建
+
+# 5. 启动
+pnpm run start:web        # 或 node apps/cli/lib/bin.js web
 ```
 
-在 `packages/bundle/web-app/cordis.patch.yml` 的插件列表中注册：
+打开 http://127.0.0.1:3080，侧边栏底部即可看到「用量统计」入口。
 
-```yaml
-- id: usage-query
-  name: 'dsh-usage-plugin'
-```
-
-重新构建并启动 `dsh web` 后，侧边栏底部会出现 📊 图标入口。
-
-### 方式二：独立安装为 Cordis 插件
-
-```bash
-pnpm add dsh-usage-plugin
-```
-
-在你的 profile `cordis.yml` 中加载：
-
-```yaml
-plugins:
-  - name: 'dsh-usage-plugin'
-```
+> 注意：当前**尚未发布到 npm**，所以不能 `pnpm add dsh-usage-plugin`（npm registry 404）。请用上面的 GitHub/workspace 方式安装。
 
 ### 使用面板
 
