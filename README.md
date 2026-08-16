@@ -140,6 +140,24 @@ pnpm run build:web
 
 ---
 
+## 📸 界面展示
+
+面板按分组维度展示，依次为 **日期 → 模型 → 会话 → 工作区**：
+
+**① 按日期**
+<img src="screenshots/by-date.png" width="640" alt="按日期分组" />
+
+**② 按模型**
+<img src="screenshots/by-model.png" width="640" alt="按模型分组" />
+
+**③ 按会话**
+<img src="screenshots/by-session.png" width="640" alt="按会话分组" />
+
+**④ 按工作区**
+<img src="screenshots/by-workspace.png" width="640" alt="按工作区分组" />
+
+---
+
 ## 🔧 手动安装（不用脚本时）
 
 ```bash
