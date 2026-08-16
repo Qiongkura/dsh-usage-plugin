@@ -2,6 +2,14 @@
 
 本项目从 DeepSeek Harness 官方仓库的 `@deepseek-ai/dsh-client-ui-usage`（前端面板）与 `@deepseek-ai/dsh-usage-query`（聚合服务）独立化而来。本文件记录独立化之后的全部改动。
 
+## [0.1.1] - 2026-08-16
+
+### 修复
+
+- **用量面板被代码块语言徽标遮挡**：对话区代码块的 sticky banner（语言标签「bat」等，吸顶层）会浮在用量统计面板上。面板 overlay 的 `z-index` 从 `100` 提升到 `1000`（与 `Modal` / `SettingsRoot` / `ImageLightbox` 等全屏浮层同级），确保面板永远盖住对话区内容。新增安装补丁 `patches/0005-usage-overlay-z-index.patch`（安装脚本与 README 已同步为 5 个补丁）。
+- **构建失败 TS2717**：`src/server/usage-query.ts` 与 `src/index.ts` 是重复实现（重构遗留的死代码），二者同时对 `Context.usageQuery` 做声明合并导致类型冲突。已删除 `src/server/usage-query.ts`（不被任何构建入口引用）。
+- **构建失败 rolldown 不兼容**：`tsdown@0.8.1` 依赖的 `rolldown@1.1.1` 移除了 `transformPlugin` 导出导致打包崩溃。`tsdown` 升级到 `^0.22.2`（与官方 DSH 构建链一致，官方已验证该组合）。
+
 ## [0.1.0] - 2026-08-16
 
 ### 新增（相对官方 ui-usage / usage-query）

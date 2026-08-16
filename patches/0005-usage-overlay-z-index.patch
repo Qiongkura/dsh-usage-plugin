@@ -1,0 +1,13 @@
+diff --git a/packages/client/ui-usage/src/client/UsagePanel.module.css b/packages/client/ui-usage/src/client/UsagePanel.module.css
+index 139f6c2..20976ec 100644
+--- a/packages/client/ui-usage/src/client/UsagePanel.module.css
++++ b/packages/client/ui-usage/src/client/UsagePanel.module.css
+@@ -1,7 +1,7 @@
+ .overlay {
+   position: fixed;
+   inset: 0;
+-  z-index: 100;
++  z-index: 1000;
+ }
+ 
+ .mask {

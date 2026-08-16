@@ -1,7 +1,9 @@
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  /* 与其他全屏 modal（Modal/SettingsRoot 等）同级，确保盖过
+     对话区代码块 sticky banner（z-index 6 吸顶层）等页面内容 */
+  z-index: 1000;
 }
 
 .mask {

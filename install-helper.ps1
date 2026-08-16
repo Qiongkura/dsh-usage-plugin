@@ -28,7 +28,8 @@ if (-not $hasUsage) {
     '0001-feat-usage-daily-token-usage-panel-with-incremental-.patch',
     '0002-usage-session-titles-in-rows-full-totals-row-transpa.patch',
     '0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch',
-    '0004-fix-usage-panel-test-types.patch'
+    '0004-fix-usage-panel-test-types.patch',
+    '0005-usage-overlay-z-index.patch'
   )
   foreach ($name in $patches) {
     $patchFile = Join-Path $PatchesDir $name

@@ -1,7 +1,7 @@
 {
   "name": "dsh-usage-plugin",
   "description": "Token usage statistics for the DeepSeek Harness: sidebar trigger + modal panel (day / model / session / workspace grouping, subagent folding, token ranking) over a read-only cross-session aggregation service",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -63,7 +63,7 @@
   },
   "devDependencies": {
     "typescript": "^5.9.0",
-    "tsdown": "^0.8.0",
+    "tsdown": "^0.22.2",
     "vitest": "^3.2.0",
     "@types/react": "~18.3.1",
     "@testing-library/react": "^16.3.2",
