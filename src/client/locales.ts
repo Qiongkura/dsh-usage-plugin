@@ -1,0 +1,81 @@
+/** `usage` namespace dictionaries. */
+
+/** Dictionary namespace owned by this plugin. */
+export const NS = 'usage'
+
+/** Simplified Chinese dictionary (the key-set source of truth). */
+export const zh = {
+  'trigger.label': '用量统计',
+  'trigger.aria': '打开 Token 用量统计',
+  'panel.title': 'Token 用量统计',
+  'panel.close': '关闭',
+  'panel.loading': '加载中…',
+  'panel.empty': '该范围内暂无用量记录',
+  'panel.error': '查询失败：{message}',
+  'preset.today': '今天',
+  'preset.days7': '近 7 天',
+  'preset.days30': '近 30 天',
+  'preset.all': '全部',
+  'preset.custom': '自定义',
+  'group.day': '按天',
+  'group.model': '按模型',
+  'group.session': '按会话',
+  'group.workspace': '按工作区',
+  'column.day': '日期',
+  'column.model': '模型',
+  'column.session': '会话',
+  'column.workspace': '工作区',
+  'sort.label': '排序',
+  'sort.default': '默认排序',
+  'sort.tokens-desc': '用量从多到少',
+  'sort.tokens-asc': '用量从少到多',
+  'column.input': '输入',
+  'column.output': '输出',
+  'column.cacheRead': '缓存读',
+  'column.cacheWrite': '缓存写',
+  'column.total': '合计',
+  'column.requests': '请求数',
+  'summary.total': '共 {tokens} tokens，{requests} 次请求',
+  'panel.asOf': '（统计截止 {time}）',
+  'model.unknown': '未知模型',
+} as const
+
+/** English dictionary, key-identical to the Chinese source of truth. */
+export const en: Record<UsageKey, string> = {
+  'trigger.label': 'Usage stats',
+  'trigger.aria': 'Open token usage statistics',
+  'panel.title': 'Token usage',
+  'panel.close': 'Close',
+  'panel.loading': 'Loading…',
+  'panel.empty': 'No usage records in this range',
+  'panel.error': 'Query failed: {message}',
+  'preset.today': 'Today',
+  'preset.days7': 'Last 7 days',
+  'preset.days30': 'Last 30 days',
+  'preset.all': 'All time',
+  'preset.custom': 'Custom',
+  'group.day': 'By day',
+  'group.model': 'By model',
+  'group.session': 'By session',
+  'group.workspace': 'By workspace',
+  'column.day': 'Date',
+  'column.model': 'Model',
+  'column.session': 'Session',
+  'column.workspace': 'Workspace',
+  'sort.label': 'Sort',
+  'sort.default': 'Default order',
+  'sort.tokens-desc': 'Most tokens first',
+  'sort.tokens-asc': 'Fewest tokens first',
+  'column.input': 'Input',
+  'column.output': 'Output',
+  'column.cacheRead': 'Cache read',
+  'column.cacheWrite': 'Cache write',
+  'column.total': 'Total',
+  'column.requests': 'Requests',
+  'summary.total': '{tokens} tokens across {requests} requests',
+  'panel.asOf': '(as of {time})',
+  'model.unknown': 'Unknown model',
+}
+
+/** Key domain of the `usage` namespace (zh is the source of truth). */
+export type UsageKey = keyof typeof zh
