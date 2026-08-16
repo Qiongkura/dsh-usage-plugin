@@ -37,9 +37,9 @@ pnpm run start:web
 `usage.query` RPC 端点是本插件的依赖。但官方 deepseek-harness 仓库**目前还没有**这个端点（usage 功能独立开发，尚未合入官方）。因此：
 
 - 如果宿主**已有** `usage.query` 端点 → 脚本跳过补丁
-- 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 **6 个补丁**（已在官方 master `47f9438` 上验证可干净应用）
+- 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 **7 个补丁**（已在官方 master `47f9438` 上验证可干净应用）
 
-6 个补丁各做什么：
+7 个补丁各做什么：
 
 | 补丁 | 内容 |
 |---|---|
@@ -49,6 +49,7 @@ pnpm run start:web
 | `0004` | 修复 usage 面板测试的类型断言 |
 | `0005` | 面板 overlay 层级提升（`z-index: 1000`） |
 | `0006` | 工作区分组维度 + Token 排序 + 面板 overlay 改为 portal 渲染（修复代码块语言标签浮在面板上的问题） |
+| `0007` | 补齐 `ui-usage` 的 `react-dom` / `@types/react-dom` 依赖（portal 渲染需要，否则 client 构建报 TS2307） |
 
 > 如果你的 DSH 仓库比基线新很多，补丁可能无法应用——脚本会明确报错，不会破坏你的仓库。
 
@@ -152,6 +153,7 @@ git apply --ignore-whitespace ../dsh-usage-plugin/patches/0003-usage-transparent
 git apply --ignore-whitespace ../dsh-usage-plugin/patches/0004-fix-usage-panel-test-types.patch
 git apply --ignore-whitespace ../dsh-usage-plugin/patches/0005-usage-overlay-z-index.patch
 git apply --ignore-whitespace ../dsh-usage-plugin/patches/0006-usage-workspace-sort-portal.patch
+git apply --ignore-whitespace ../dsh-usage-plugin/patches/0007-ui-usage-react-dom-deps.patch
 
 # 1. 把插件 clone 进 DSH 仓库
 git clone https://github.com/Qiongkura/dsh-usage-plugin.git \

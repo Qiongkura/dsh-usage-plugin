@@ -23,6 +23,27 @@ function Write-NoBom([string]$path, [string]$text) {
 # ---- 0. 宿主缺少 usage 域时应用补丁 ----
 $handler = Join-Path $DshRoot 'packages\host\apiproxy\src\fetch\handler.ts'
 $hasUsage = (Test-Path $handler) -and ((Get-Content $handler -Raw) -match 'usage\.query')
+
+function Apply-Patch([string]$name) {
+  $patchFile = Join-Path $PatchesDir $name
+  if (-not (Test-Path $patchFile)) {
+    Write-Error "Patch not found: $patchFile"
+  }
+  Write-Output "  [apply] $name"
+  pushd $DshRoot
+  git apply --check --ignore-whitespace $patchFile 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    popd
+    Write-Error "Patch $name does not apply. Host may already have part of the usage code, or diverge from baseline (official master 47f9438). To reset: git fetch origin; git reset --hard origin/master"
+  }
+  git apply --ignore-whitespace $patchFile
+  if ($LASTEXITCODE -ne 0) {
+    popd
+    Write-Error "Patch $name failed to apply."
+  }
+  popd
+}
+
 if (-not $hasUsage) {
   $patches = @(
     '0001-feat-usage-daily-token-usage-panel-with-incremental-.patch',
@@ -30,30 +51,34 @@ if (-not $hasUsage) {
     '0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch',
     '0004-fix-usage-panel-test-types.patch',
     '0005-usage-overlay-z-index.patch',
-    '0006-usage-workspace-sort-portal.patch'
+    '0006-usage-workspace-sort-portal.patch',
+    '0007-ui-usage-react-dom-deps.patch'
   )
   foreach ($name in $patches) {
-    $patchFile = Join-Path $PatchesDir $name
-    if (-not (Test-Path $patchFile)) {
-      Write-Error "Patch not found: $patchFile"
-    }
-    Write-Output "  [apply] $name"
-    pushd $DshRoot
-    git apply --check --ignore-whitespace $patchFile 2>$null
-    if ($LASTEXITCODE -ne 0) {
-      popd
-      Write-Error "Patch $name does not apply. Host may already have part of the usage code, or diverge from baseline (official master 47f9438). To reset: git fetch origin; git reset --hard origin/master"
-    }
-    git apply --ignore-whitespace $patchFile
-    if ($LASTEXITCODE -ne 0) {
-      popd
-      Write-Error "Patch $name failed to apply."
-    }
-    popd
+    Apply-Patch $name
   }
   Write-Output '  [OK] usage patches applied.'
 } else {
-  Write-Output '  [OK] Host already has usage.query (no patches needed).'
+  # 宿主已有 usage 域（之前装过旧版补丁，或官方已含 usage）：只补缺失的增量补丁。
+  # 0006/0007 相对补丁基线 HEAD 生成，可单独应用。
+  $incremental = @(
+    @{ File = 'packages\client\ui-usage\src\client\UsagePanel.tsx'; Marker = 'createPortal'; Patch = '0006-usage-workspace-sort-portal.patch' },
+    @{ File = 'packages\client\ui-usage\package.json';              Marker = 'react-dom';      Patch = '0007-ui-usage-react-dom-deps.patch' }
+  )
+  $applied = $false
+  foreach ($inc in $incremental) {
+    $target = Join-Path $DshRoot $inc.File
+    $needs = -not (Test-Path $target) -or -not ((Get-Content $target -Raw) -match [regex]::Escape($inc.Marker))
+    if ($needs) {
+      Apply-Patch $inc.Patch
+      $applied = $true
+    }
+  }
+  if ($applied) {
+    Write-Output '  [OK] incremental usage patches applied.'
+  } else {
+    Write-Output '  [OK] Host already has usage.query; incremental patches already applied.'
+  }
 }
 
 # ---- 1. 把插件加入 dsh-web-app 依赖 ----

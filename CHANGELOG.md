@@ -13,7 +13,8 @@
 
 ### 安装补丁
 
-- 补丁数从 **5 个增至 6 个**：`0001`–`0005` 不变，新增 `0006-usage-workspace-sort-portal.patch`；`install-helper.ps1` 与 README 已同步。
+- 补丁数从 **6 个增至 7 个**：`0001`–`0006` 不变，新增 `0007-ui-usage-react-dom-deps.patch`（端到端实测发现：宿主 `ui-usage` 的 `package.json` 缺 `react-dom` / `@types/react-dom`，client 构建报 TS2307——补丁补齐依赖声明）；`install-helper.ps1` 与 README 已同步。
+- 完整安装链路（`install-into-dsh.bat`）已在干净官方 master `47f9438` 上端到端实测：补丁 7 个全部应用 → `pnpm install` → `build:lib:host` → `build:lib:client` 全部通过。
 
 ## [0.1.0] - 2026-08-16
 

@@ -1,0 +1,22 @@
+diff --git a/packages/client/ui-usage/package.json b/packages/client/ui-usage/package.json
+index 578ec1c..48f147d 100644
+--- a/packages/client/ui-usage/package.json
++++ b/packages/client/ui-usage/package.json
+@@ -46,7 +46,8 @@
+     "access": "public"
+   },
+   "dependencies": {
+-    "react": "^18.2.0"
++    "react": "^18.2.0",
++    "react-dom": "^18.2.0"
+   },
+   "peerDependencies": {
+     "@deepseek-ai/dsh-api-remotes": "workspace:^",
+@@ -69,6 +70,7 @@
+     "@deepseek-ai/dsh-invariants": "workspace:^",
+     "@testing-library/react": "^16.3.2",
+     "@types/react": "~18.3.1",
++    "@types/react-dom": "~18.3.0",
+     "@deepseek-ai/cordis": "workspace:^"
+   },
+   "files": [
