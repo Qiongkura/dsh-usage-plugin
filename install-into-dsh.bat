@@ -55,7 +55,7 @@ if defined HAS_USAGE (
     "%~dp0patches\0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch"
   ) do (
     echo   [应用] %%~nxP
-    git apply --check "%%~P" 2>nul
+    git apply --check --ignore-whitespace "%%~P" 2>nul
     if errorlevel 1 (
       echo   [错误] 补丁 %%~nxP 无法应用。可能原因：
       echo          - DSH 仓库已有部分 usage 代码（部分应用过）
@@ -64,7 +64,7 @@ if defined HAS_USAGE (
       popd
       exit /b 1
     )
-    git apply "%%~P"
+    git apply --ignore-whitespace "%%~P"
     if errorlevel 1 (
       echo   [错误] 补丁 %%~nxP 应用失败。
       popd
