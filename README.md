@@ -20,12 +20,15 @@ install-into-dsh.bat D:\deepseek-harness
 
 :: 第 3 步：启动 DSH，打开 http://127.0.0.1:3080
 cd D:\deepseek-harness
+pnpm run build:web    :: 首次需要构建 Web 界面（约 3 秒）
 pnpm run start:web
 ```
 
 打开网页后，**侧边栏底部**有一个 📊 图标，点开就是用量统计面板。
 
-脚本会自动完成所有事情：**（必要时）给宿主打 usage 补丁** → 把插件放进 DSH → 禁用官方重复插件 → 注册 → 安装依赖 → 构建。
+脚本会自动完成所有事情：**（必要时）给宿主打 usage 补丁** → 把插件放进 DSH → 把插件加入 dsh-web-app 依赖 → 禁用官方重复插件 → 注册 → `pnpm install` → 构建 host/client。
+
+> ✅ 完整流程已在干净的官方 master（`47f9438`）上实测通过：补丁应用 → 构建 → 启动 → `usage.query` 返回数据，全部成功。
 
 ---
 
@@ -34,7 +37,7 @@ pnpm run start:web
 `usage.query` RPC 端点是本插件的依赖。但官方 deepseek-harness 仓库**目前还没有**这个端点（usage 功能独立开发，尚未合入官方）。因此：
 
 - 如果宿主**已有** `usage.query` 端点 → 脚本跳过补丁
-- 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 3 个补丁（已在官方 master `47f9438` 上验证可干净应用）
+- 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 **4 个补丁**（已在官方 master `47f9438` 上验证可干净应用）
 
 > 如果你的 DSH 仓库比基线新很多，补丁可能无法应用——脚本会明确报错，不会破坏你的仓库。
 
@@ -62,9 +65,9 @@ git -C D:\deepseek-harness reset --hard origin/master
 
 ### 2. 为什么要禁用官方的 usage-query / ui-usage？
 
-本插件是官方功能的**替代品**，两者注册的是**同一个服务**（`ctx.usageQuery`）和**同一个入口**。同时启用会冲突（启动报错或出现两个入口）。脚本会自动禁用官方插件，让本插件接管——**数据获取完全由本插件自己完成**，不会丢数据。
+本插件是官方功能的**替代品**，两者注册的是**同一个服务**（`ctx.usageQuery`）和**同一个入口**。同时启用会冲突（启动报错 `service "usageQuery" has been registered` 或出现两个入口）。脚本会自动给官方插件加 `disabled: true`，让本插件接管——**数据获取完全由本插件自己完成**，不会丢数据。
 
-想恢复官方插件？把 `packages\bundle\web-app\cordis.patch.yml` 里 `disabled-` 开头的条目改回 `- id: ...` 即可。
+想恢复官方插件？把 `packages\bundle\web-app\cordis.patch.yml` 里 `usage-query` / `ui-usage` 条目的 `disabled: true` 删除即可。
 
 ### 3. 能 `pnpm add dsh-usage-plugin` 吗？
 
@@ -73,6 +76,10 @@ git -C D:\deepseek-harness reset --hard origin/master
 ### 4. 没有 DSH 源码仓库，只有桌面应用？
 
 插件目前需要挂进 DSH 源码仓库使用；只装了桌面应用的环境暂不支持单独安装。
+
+### 5. 启动报错「Cannot find package 'dsh-usage-plugin'」？
+
+说明插件没有进入 dsh-web-app 的依赖树（profiles 无法解析）。重新运行 `install-into-dsh.bat`（第 4 步会自动添加依赖并重新 install）。
 
 ---
 
@@ -102,37 +109,43 @@ git -C D:\deepseek-harness reset --hard origin/master
 ```bash
 # 0. 先给宿主打 usage 补丁（如果宿主还没有 usage.query 端点）
 #    检查：grep -r "usage.query" packages/host/apiproxy/src/fetch/handler.ts
-#    没有则（在 DSH 仓库根目录执行）：
+#    没有则（在 DSH 仓库根目录执行，注意补丁顺序不能乱）：
 cd D:/deepseek-harness
-git apply ../dsh-usage-plugin/patches/0001-feat-usage-daily-token-usage-panel-with-incremental-.patch
-git apply ../dsh-usage-plugin/patches/0002-usage-session-titles-in-rows-full-totals-row-transpa.patch
-git apply ../dsh-usage-plugin/patches/0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch
+git apply --ignore-whitespace ../dsh-usage-plugin/patches/0001-feat-usage-daily-token-usage-panel-with-incremental-.patch
+git apply --ignore-whitespace ../dsh-usage-plugin/patches/0002-usage-session-titles-in-rows-full-totals-row-transpa.patch
+git apply --ignore-whitespace ../dsh-usage-plugin/patches/0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch
+git apply --ignore-whitespace ../dsh-usage-plugin/patches/0004-fix-usage-panel-test-types.patch
 
 # 1. 把插件 clone 进 DSH 仓库
 git clone https://github.com/Qiongkura/dsh-usage-plugin.git \
   D:/deepseek-harness/packages/usage/usage-plugin
 
-# 2. 禁用官方插件：编辑 packages/bundle/web-app/cordis.patch.yml
-#    找到这两段并改成（enabled: false 表示禁用）：
-#    - id: disabled-usage-query
-#      name: '@deepseek-ai/dsh-usage-query'
-#      enabled: false
-#    - id: disabled-ui-usage
-#      name: '@deepseek-ai/dsh-client-ui-usage'
-#      enabled: false
+# 2. 把插件加入 dsh-web-app 依赖（关键！否则启动报
+#    "Cannot find package 'dsh-usage-plugin'"）
+#    编辑 packages/bundle/web-app/package.json 的 dependencies，添加：
+#    "dsh-usage-plugin": "workspace:*"
 
-# 3. 在同一个文件里注册本插件：
+# 3. 禁用官方插件：编辑 packages/bundle/web-app/cordis.patch.yml
+#    找到这两段，在原条目上加 disabled: true：
+#    - id: usage-query
+#      name: '@deepseek-ai/dsh-usage-query'
+#      disabled: true
+#    - id: ui-usage
+#      name: '@deepseek-ai/dsh-client-ui-usage'
+#      disabled: true
+
+# 4. 在同一个文件里注册本插件：
 #    - id: usage-plugin
 #      name: 'dsh-usage-plugin'
 
-# 4. 安装并构建
+# 5. 安装并构建
 cd D:/deepseek-harness
 pnpm install
 pnpm run build:lib:host
 pnpm run build:lib:client
 pnpm run build:web
 
-# 5. 启动
+# 6. 启动
 pnpm run start:web
 ```
 

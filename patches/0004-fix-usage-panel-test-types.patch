@@ -1,0 +1,27 @@
+From: dsh-usage-plugin
+Subject: [PATCH 4/4] fix: usage-panel test mock.calls typing under TypeScript 6
+
+The usage-panel client spec maps `query.mock.calls` entries directly;
+TypeScript 6.0 (current official master toolchain) types the un-parameterized
+`vi.fn` mock calls as `[][]`, so `call[0] as Record<string, unknown>` fails
+with TS2352/TS2493 and blocks the client build. Route the cast through
+`unknown` and index the widened tuple instead.
+
+---
+ packages/client/ui-usage/tests/usage-panel.client.spec.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/packages/client/ui-usage/tests/usage-panel.client.spec.tsx b/packages/client/ui-usage/tests/usage-panel.client.spec.tsx
+index 0000000..0000000 100644
+--- a/packages/client/ui-usage/tests/usage-panel.client.spec.tsx
++++ b/packages/client/ui-usage/tests/usage-panel.client.spec.tsx
+@@ -98,7 +98,7 @@
+     fireEvent.click(screen.getByRole('button', { name: zh['column.session'] }))
+     await flush()
+     fireEvent.click(screen.getByText(zh['preset.today']))
+     await flush()
+-    const payloads = query.mock.calls.map(call => call[0] as Record<string, unknown>)
++    const payloads = (query.mock.calls as unknown as [Record<string, unknown>][]).map(call => call[0])
+     expect(payloads.every(payload => payload.asOf === ASOF)).toBe(true)
+     expect(payloads.map(payload => payload.asOf)).toEqual([ASOF, ASOF, ASOF])
+   })
