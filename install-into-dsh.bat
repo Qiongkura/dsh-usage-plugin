@@ -35,18 +35,45 @@ if not exist "%DSH_ROOT%\packages\bundle\web-app\cordis.patch.yml" (
 
 echo.
 echo ============================================================
-echo  [2/7] 检查宿主是否支持 usage.query 端点
+echo  [2/7] 确保宿主支持 usage.query 端点（必要时自动打补丁）
 echo ============================================================
 set "HAS_USAGE="
 findstr /C:"usage.query" "%DSH_ROOT%\packages\host\apiproxy\src\fetch\handler.ts" >nul 2>&1 && set "HAS_USAGE=1"
-if not defined HAS_USAGE (
-  echo   [错误] 宿主 apiproxy 未包含 usage.query 端点。
-  echo         本插件依赖 DSH 官方 usage 域 RPC（usage.query），
-  echo         请先把 DSH 仓库更新到包含 usage 域的最新版本：
-  echo           git -C "%DSH_ROOT%" pull
-  exit /b 1
+if defined HAS_USAGE (
+  echo   [通过] 宿主已包含 usage.query 端点（无需补丁）。
+) else (
+  echo   [提示] 宿主缺少 usage 域，将应用本插件自带的 usage 补丁...
+  echo   [提示] 补丁目录: %~dp0patches
+  if not exist "%~dp0patches\0001-feat-usage-daily-token-usage-panel-with-incremental-.patch" (
+    echo   [错误] 找不到补丁文件，请确认是从 GitHub 完整 clone 的插件仓库（含 patches 目录）。
+    exit /b 1
+  )
+  pushd "%DSH_ROOT%"
+  for %%P in (
+    "%~dp0patches\0001-feat-usage-daily-token-usage-panel-with-incremental-.patch"
+    "%~dp0patches\0002-usage-session-titles-in-rows-full-totals-row-transpa.patch"
+    "%~dp0patches\0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch"
+  ) do (
+    echo   [应用] %%~nxP
+    git apply --check "%%~P" 2>nul
+    if errorlevel 1 (
+      echo   [错误] 补丁 %%~nxP 无法应用。可能原因：
+      echo          - DSH 仓库已有部分 usage 代码（部分应用过）
+      echo          - DSH 仓库与补丁基线（官方 master 47f9438）偏离较大
+      echo         请手动处理或换用包含 usage 域的 DSH 仓库。
+      popd
+      exit /b 1
+    )
+    git apply "%%~P"
+    if errorlevel 1 (
+      echo   [错误] 补丁 %%~nxP 应用失败。
+      popd
+      exit /b 1
+    )
+  )
+  popd
+  echo   [完成] usage 补丁已全部应用。
 )
-echo   [通过] usage.query 端点存在。
 
 echo.
 echo ============================================================

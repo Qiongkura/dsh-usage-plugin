@@ -1,0 +1,4013 @@
+From b401e5b0e6ca3c227d8adf27fbcb89108c68586e Mon Sep 17 00:00:00 2001
+From: Qiongkura <2447402326@qq.com>
+Date: Sun, 16 Aug 2026 00:51:44 +0800
+Subject: [PATCH 1/3] feat(usage): daily token usage panel with incremental
+ live folding
+
+- usage.query API: apiproxy usage domain (schema/rpc-map/fetch routes/client)
+- dsh-usage-query service: cross-session token aggregation; persisted
+  sessions via revision-cached raw scans, live sessions via incremental
+  in-memory folds (only tail events iterated per query) + background
+  warm-up at mount, so panel queries are near-instant even on a live
+  conversation with millions of streaming chunk events
+- ui-usage client: sidebar-foot trigger + usage modal (today/7d/30d/all
+  presets + custom dates, day/model/session grouping, bars + totals)
+- web-app bundle wiring, web dev helper scripts, implementation notes
+---
+ ...26-08-15-daily-token-usage-panel.i18n.yaml |   6 +
+ .../2026-08-15-daily-token-usage-panel.md     |  37 ++
+ .../2026-08-15-daily-token-usage-panel.zh.md  |  37 ++
+ .gitignore                                    |   2 +
+ package.json                                  |   5 +-
+ packages/api/remotes/src/client/index.ts      |   1 +
+ packages/bundle/web-app/cordis.patch.yml      |   9 +
+ packages/bundle/web-app/package.json          |   2 +
+ packages/client/connection/src/client/api.ts  |   1 +
+ .../client/connection/src/client/fixture.ts   |   9 +
+ .../client/connection/src/client/index.ts     |   1 +
+ .../connection/tests/fake-api.client.ts       |   7 +
+ .../client/runtime/tests/fake-api.client.ts   |   7 +
+ packages/client/ui-usage/README.i18n.yaml     |   6 +
+ packages/client/ui-usage/README.md            |  33 ++
+ packages/client/ui-usage/README.zh.md         |  33 ++
+ packages/client/ui-usage/package.json         |  80 +++
+ .../ui-usage/src/client/UsagePanel.module.css | 203 ++++++++
+ .../client/ui-usage/src/client/UsagePanel.tsx | 239 +++++++++
+ .../src/client/UsageTrigger.module.css        |  30 ++
+ .../ui-usage/src/client/UsageTrigger.tsx      |  44 ++
+ packages/client/ui-usage/src/client/index.ts  |  44 ++
+ .../client/ui-usage/src/client/locales.ts     |  69 +++
+ packages/client/ui-usage/src/css-modules.d.ts |   6 +
+ packages/client/ui-usage/src/index.ts         |   9 +
+ packages/client/ui-usage/src/invariant.ts     |  31 ++
+ .../tests/browser-plugin.client.spec.ts       | 100 ++++
+ .../tests/usage-panel.client.spec.tsx         | 267 ++++++++++
+ packages/client/ui-usage/tsconfig.json        |  36 ++
+ packages/client/ui-usage/tsdown.config.ts     |   3 +
+ .../src/client/slot-catalog.ts                |   1 +
+ packages/host/apiproxy/package.json           |   1 +
+ packages/host/apiproxy/src/api-proxy.ts       |  28 ++
+ packages/host/apiproxy/src/api/index.ts       |   3 +
+ packages/host/apiproxy/src/api/rpc-map.ts     |   2 +
+ .../host/apiproxy/src/api/usage.schema.ts     |  46 ++
+ packages/host/apiproxy/src/api/usage.ts       |  73 +++
+ packages/host/apiproxy/src/fetch/client.ts    |   9 +
+ packages/host/apiproxy/src/fetch/handler.ts   |   2 +
+ packages/host/apiproxy/src/index.ts           |   2 +
+ .../apiproxy/tests/client-handler.spec.ts     |   8 +
+ .../host/apiproxy/tests/fetch-carrier.spec.ts |  14 +
+ packages/host/apiproxy/tsconfig.json          |   3 +
+ packages/usage/usage-query/README.i18n.yaml   |   6 +
+ packages/usage/usage-query/README.md          |  43 ++
+ packages/usage/usage-query/README.zh.md       |  43 ++
+ packages/usage/usage-query/package.json       |  60 +++
+ packages/usage/usage-query/src/fold.ts        | 198 ++++++++
+ packages/usage/usage-query/src/index.ts       | 310 ++++++++++++
+ packages/usage/usage-query/src/invariant.ts   |  32 ++
+ packages/usage/usage-query/src/raw.ts         |  91 ++++
+ packages/usage/usage-query/src/types.ts       | 113 +++++
+ packages/usage/usage-query/tests/raw.spec.ts  |  56 +++
+ .../usage-query/tests/usage-query.spec.ts     | 467 ++++++++++++++++++
+ packages/usage/usage-query/tsconfig.json      |  33 ++
+ pnpm-lock.yaml                                |  79 ++-
+ scripts/start-web.ps1                         |  66 +++
+ scripts/stop-web.ps1                          |  41 ++
+ .../verify-package-readme-model-experience.ts |   2 +
+ scripts/watch-web.ps1                         |  78 +++
+ tsconfig.client.json                          |   1 +
+ 61 files changed, 3263 insertions(+), 5 deletions(-)
+ create mode 100644 .agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.i18n.yaml
+ create mode 100644 .agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.md
+ create mode 100644 .agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.zh.md
+ create mode 100644 packages/client/ui-usage/README.i18n.yaml
+ create mode 100644 packages/client/ui-usage/README.md
+ create mode 100644 packages/client/ui-usage/README.zh.md
+ create mode 100644 packages/client/ui-usage/package.json
+ create mode 100644 packages/client/ui-usage/src/client/UsagePanel.module.css
+ create mode 100644 packages/client/ui-usage/src/client/UsagePanel.tsx
+ create mode 100644 packages/client/ui-usage/src/client/UsageTrigger.module.css
+ create mode 100644 packages/client/ui-usage/src/client/UsageTrigger.tsx
+ create mode 100644 packages/client/ui-usage/src/client/index.ts
+ create mode 100644 packages/client/ui-usage/src/client/locales.ts
+ create mode 100644 packages/client/ui-usage/src/css-modules.d.ts
+ create mode 100644 packages/client/ui-usage/src/index.ts
+ create mode 100644 packages/client/ui-usage/src/invariant.ts
+ create mode 100644 packages/client/ui-usage/tests/browser-plugin.client.spec.ts
+ create mode 100644 packages/client/ui-usage/tests/usage-panel.client.spec.tsx
+ create mode 100644 packages/client/ui-usage/tsconfig.json
+ create mode 100644 packages/client/ui-usage/tsdown.config.ts
+ create mode 100644 packages/host/apiproxy/src/api/usage.schema.ts
+ create mode 100644 packages/host/apiproxy/src/api/usage.ts
+ create mode 100644 packages/usage/usage-query/README.i18n.yaml
+ create mode 100644 packages/usage/usage-query/README.md
+ create mode 100644 packages/usage/usage-query/README.zh.md
+ create mode 100644 packages/usage/usage-query/package.json
+ create mode 100644 packages/usage/usage-query/src/fold.ts
+ create mode 100644 packages/usage/usage-query/src/index.ts
+ create mode 100644 packages/usage/usage-query/src/invariant.ts
+ create mode 100644 packages/usage/usage-query/src/raw.ts
+ create mode 100644 packages/usage/usage-query/src/types.ts
+ create mode 100644 packages/usage/usage-query/tests/raw.spec.ts
+ create mode 100644 packages/usage/usage-query/tests/usage-query.spec.ts
+ create mode 100644 packages/usage/usage-query/tsconfig.json
+ create mode 100644 scripts/start-web.ps1
+ create mode 100644 scripts/stop-web.ps1
+ create mode 100644 scripts/watch-web.ps1
+
+diff --git a/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.i18n.yaml b/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.i18n.yaml
+new file mode 100644
+index 0000000..80a22b8
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.md
++2026-08-15-daily-token-usage-panel.md: a5092d9e98b6898e872e0ed76d914baab88f0dad
++2026-08-15-daily-token-usage-panel.zh.md: d69cc6a67bd952779f932cd8c590905d7d45234f
+diff --git a/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.md b/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.md
+new file mode 100644
+index 0000000..a5092d9
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.md
+@@ -0,0 +1,37 @@
++# Agent Note: Daily token usage statistics panel
++
++Status: implemented
++
++English | [中文](2026-08-15-daily-token-usage-panel.zh.md)
++
++## Problem
++
++The harness records provider-reported token usage in every session log (`assistant/message.usage` and streaming `assistant/chunk` usage samples), and token-meter projects it per session, but nothing answers the everyday question "how many tokens did I use yesterday / this week / across models?" Cross-session, per-day aggregation — and a GUI to ask it with — did not exist.
++
++## Decision
++
++Two new packages plus one API method:
++
++- **`@deepseek-ai/dsh-usage-query`** (host) provides the `ctx.usageQuery` service. `query(request)` reads the logical corpus through `ctx.sessionQuery` (`listSessions` + `readSession`), folds usage samples with a last-wins `(turn, step)` rule (a final `assistant/message` usage replaces the same step's earlier `assistant/chunk` sample, mirroring token-meter's `tokenUsage` projection), attributes each sample to the newest preceding `request/header`'s `provider/model` (else the `unknown` label) and to the sample event's **local calendar day**, then groups by any non-empty, duplicate-free subset of `day` / `model` / `session`. The response is deterministic rows plus a grand total; validation failures and a missing `sessionQuery` fail loudly before any corpus read. The service is read-only: no agent, prompt, or provider interaction.
++- **`@deepseek-ai/dsh-client-ui-usage`** (web client) registers a `sidebar.footer.action` trigger (icon-only on the collapsed rail) that opens a modal: date presets (today / last 7 / last 30 / all, or two custom date inputs), group-by chips over the three dimensions (the last dimension cannot be switched off), a bar strip for the first grouped dimension, and a grouped totals table with a grand-total footer. Every control change issues one `usage.query` call; the plugin holds no state beyond the trigger's open flag.
++- **`usage.query`** joins `RpcMethodMap` as a new apiproxy domain (`api/usage.ts` + `api/usage.schema.ts` + fetch routes + `IApiClient.usage`), delegating to `ctx.usageQuery` and reporting the service's absence as an `internal` error. The wire view types are defined in the browser-safe `api/` layer and re-exported through connection / api-remotes for client consumption.
++
++The web bundle mounts both packages (`usage-query` host row, `ui-usage` browser row); the base/TUI composition is untouched.
++
++## Testing
++
++Host folds and service behavior are pinned by 27 unit tests with 100% per-file coverage (`packages/usage/usage-query`), including the last-wins replacement rule, header attribution, window filtering, every dimension combination, sorting, and the loud failure paths. The client panel is pinned by 21 jsdom tests (100% coverage on `src/client`) covering presets, custom dates, group toggles, the last-dimension guard, bars, table cells, unknown-model labels, error/empty/loading states, and close paths; the plugin bench verifies registration and HMR-safe teardown. The apiproxy suite (374 tests) and the web-app bundle composition tests pass unchanged.
++
++## Alternatives considered
++
++**Extend token-meter's projection to a daily ledger** — rejected. `tokenUsage` is a per-session projection over the projection seam; a cross-session, parameterized aggregation is a different shape (window + grouping), and entangling it with the meter's compaction-facing service would couple a read-only analytics surface to pressure accounting.
++
++**A durable per-day ledger written by a live listener** — rejected for the first cut. It would need backfill, crash reconciliation, and storage ownership for a benefit (faster repeated queries) the corpus scan already covers at personal scale; the scan is stateless and always consistent with the logs.
++
++**A Typert Remote instead of an apiproxy method** — rejected. The panel is a request/response query over a new domain; the apiproxy method table is the established, schema-validated channel for exactly that (settings, models, jobs), and it keeps the client call `api.usage.query(...)` typed end to end without a generated Remote.
++
++**Grouping as a single dimension picker** — rejected per request: the panel deliberately supports any combination of dimensions (day × model × session) so "per model per day" and similar pivot views work without new endpoints.
++
++## Consequences
++
++Users get a local, offline view of their token consumption per day, model, and session from data the harness already logs — no provider API, no new storage format, no model-visible surface change. The cost: every query replays the session corpus (fine at personal scale; a durable ledger remains the documented follow-up), and counts are whole-log-scoped (compacted-away steps still count, matching `tokenUsage` semantics). The `unknown` model label makes pre-header samples visible rather than dropped.
+diff --git a/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.zh.md b/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.zh.md
+new file mode 100644
+index 0000000..d69cc6a
+--- /dev/null
++++ b/.agents/notes/implemented/feature/2026-08-15-daily-token-usage-panel.zh.md
+@@ -0,0 +1,37 @@
++# Agent Note: 每日 Token 用量统计面板
++
++Status: implemented
++
++[English](2026-08-15-daily-token-usage-panel.md) | 中文
++
++## 问题
++
++Harness 会在每个会话日志中记录各提供商上报的 token 用量（`assistant/message.usage` 与流式 `assistant/chunk` 用量样本），token-meter 也按会话做了投影，但没有任何东西回答"昨天/本周/各模型一共用了多少 token"这个日常问题。跨会话、按天的聚合——以及用来提问的图形界面——此前并不存在。
++
++## 决策
++
++两个新包加一个 API 方法：
++
++- **`@deepseek-ai/dsh-usage-query`**（主机端）提供 `ctx.usageQuery` 服务。`query(request)` 通过 `ctx.sessionQuery`（`listSessions` + `readSession`）读取逻辑语料，按 `(turn, step)` 以"后者覆盖"规则折叠用量样本（最终 `assistant/message` 的用量取代同一步骤较早的 `assistant/chunk` 样本，与 token-meter 的 `tokenUsage` 投影一致），把每个样本归属到其前最近一个 `request/header` 的 `provider/model`（否则为 `unknown` 标签）以及样本事件的**本地日历日**，再按 `day` / `model` / `session` 的任意非空、无重复子集分组。响应为确定性行加总计；校验失败与缺少 `sessionQuery` 都会在读取语料前快速失败。该服务只读：不涉及 agent、提示词或提供商交互。
++- **`@deepseek-ai/dsh-client-ui-usage`**（Web 客户端）注册一个 `sidebar.footer.action` 触发器（折叠栏只显示图标），点击打开模态面板：日期预设（今天 / 近 7 天 / 近 30 天 / 全部，或两个自定义日期输入）、三个维度的分组开关（最后一个维度不可关闭）、首个分组维度的条形图，以及带总计行的分组汇总表。每次控件变更发起一次 `usage.query` 调用；插件除触发器的打开标志外不持有任何状态。
++- **`usage.query`** 作为新的 apiproxy 域加入 `RpcMethodMap`（`api/usage.ts` + `api/usage.schema.ts` + fetch 路由 + `IApiClient.usage`），委托给 `ctx.usageQuery`，服务缺失时以 `internal` 错误上报。线缆视图类型定义在浏览器安全的 `api/` 层，并通过 connection / api-remotes 再导出供客户端使用。
++
++Web bundle 装配了两个包（`usage-query` 主机行、`ui-usage` 浏览器行）；base/TUI 装配保持不变。
++
++## 测试
++
++主机折叠与服务行为由 27 个单元测试固定，每文件覆盖率达到 100%（`packages/usage/usage-query`），覆盖"后者覆盖"替换规则、请求头归属、窗口过滤、每种维度组合、排序与快速失败路径。客户端面板由 21 个 jsdom 测试固定（`src/client` 100% 覆盖），覆盖预设、自定义日期、分组开关、最后维度保护、条形图、表格单元格、未知模型标签、错误/空/加载状态与关闭路径；插件 bench 验证注册与 HMR 安全卸载。apiproxy 套件（374 个测试）与 web-app bundle 组成测试原样通过。
++
++## 备选方案
++
++**把 token-meter 的投影扩展为每日账本**——否决。`tokenUsage` 是投影接缝上的按会话投影；跨会话、带参数的聚合是另一种形态（窗口 + 分组），把它与面向压缩的服务纠缠在一起会把只读分析面耦合进压力核算。
++
++**由活动监听器写入持久的按天账本**——首版否决。它需要回填、崩溃对账与存储归属，而收益（重复查询更快）在个人规模下语料扫描已能满足；扫描无状态且始终与日志一致。
++
++**用 Typert Remote 而不是 apiproxy 方法**——否决。面板是对新域的请求/响应查询；apiproxy 方法表正是这类查询（settings、models、jobs）既有的、经 schema 校验的通道，且能让客户端调用 `api.usage.query(...)` 端到端类型化，无需生成 Remote。
++
++**分组做成单选**——按需求否决：面板刻意支持维度的任意组合（天 × 模型 × 会话），使"按模型按天"等透视视图无需新端点即可实现。
++
++## 后果
++
++用户可以从 harness 已经记录的日志中获得本地、离线的每日/每模型/每会话用量视图——无需提供商 API、新存储格式或模型可见面变更。代价：每次查询都会重放会话语料（个人规模无碍；持久账本仍是文档化的后续工作）；计数以整日志为范围（被压缩掉的步骤仍计入，与 `tokenUsage` 语义一致）。`unknown` 模型标签让无请求头的样本可见而非丢弃。
+diff --git a/.gitignore b/.gitignore
+index 3d0fd8e..54025eb 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -4,6 +4,8 @@ node_modules/
+ lib/
+ *.tsbuildinfo
+ pnpm-debug.log
++dsh-web.*.log
++dsh-web.*.pid
+ .pnpm-store/
+ .cache/
+ examples/*/*.jsonl
+diff --git a/package.json b/package.json
+index 81cedbb..f8809ee 100644
+--- a/package.json
++++ b/package.json
+@@ -133,7 +133,10 @@
+     "release:pack": "tsx scripts/release/pack.ts",
+     "release:verify-packed-install": "tsx scripts/release/verify-packed-install.ts",
+     "release:publish": "tsx scripts/release/publish.ts",
+-    "dsh": "node --import tsx/esm apps/cli/src/bin.ts",
++    "dsh": "node apps/cli/lib/bin.js",
++    "start:web": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-web.ps1",
++    "watch:web": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/watch-web.ps1",
++    "stop:web": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/stop-web.ps1",
+     "demo:code-mode": "node scripts/demo-code-mode.mjs",
+     "demo:cordis": "node scripts/demo-cordis.mjs",
+     "demo:acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/acp-agent/cordis.yml",
+diff --git a/packages/api/remotes/src/client/index.ts b/packages/api/remotes/src/client/index.ts
+index 210ec0b..1d77eb3 100644
+--- a/packages/api/remotes/src/client/index.ts
++++ b/packages/api/remotes/src/client/index.ts
+@@ -40,6 +40,7 @@ export type {
+   RpcRequest, RpcResponse, RpcResult, SessionId, SessionModels, SessionSearchItem,
+   SessionSummary, SettingsNamespaceView, SettingsPathOpView, SkillEntry, StreamChunk,
+   SubagentAddress, SubagentCatalog, JobView, ToolCallView, ToolEventView, ToolResultView,
++  UsageDimension, UsageQueryResult, UsageRow, UsageTokenTotals,
+   WorkspaceId, WorkspaceView,
+ } from '@deepseek-ai/dsh-client-connection/client'
+ export type {} from '@deepseek-ai/dsh-api-gateway/client'
+diff --git a/packages/bundle/web-app/cordis.patch.yml b/packages/bundle/web-app/cordis.patch.yml
+index b06e63b..a9d0459 100644
+--- a/packages/bundle/web-app/cordis.patch.yml
++++ b/packages/bundle/web-app/cordis.patch.yml
+@@ -84,6 +84,11 @@
+     - id: session-stats
+       name: '@deepseek-ai/dsh-session-stats'
+ 
++    # Cross-session token-usage aggregation behind the usage.query API; the
++    # web panel reads it through the api-proxy usage domain.
++    - id: usage-query
++      name: '@deepseek-ai/dsh-usage-query'
++
+     # Resolve bind host, SSH launch, and display once at boot, then mount the
+     # matching dual-face directory picker. Mount -native or -browse directly in
+     # an overlay to pin the interaction.
+@@ -250,6 +255,10 @@
+     - id: ui-model-selection
+       name: '@deepseek-ai/dsh-client-ui-model-selection'
+ 
++    # Token usage statistics: the sidebar-foot trigger + modal over usage.query.
++    - id: ui-usage
++      name: '@deepseek-ai/dsh-client-ui-usage'
++
+     - id: ui-permission
+       name: '@deepseek-ai/dsh-client-ui-permission-presets'
+ 
+diff --git a/packages/bundle/web-app/package.json b/packages/bundle/web-app/package.json
+index ca4709a..e9c9fbd 100644
+--- a/packages/bundle/web-app/package.json
++++ b/packages/bundle/web-app/package.json
+@@ -78,6 +78,7 @@
+     "@deepseek-ai/dsh-client-ui-jobs": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-theme": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-tool": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-usage": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-workflow-run": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-trajectory": "workspace:^",
+     "@deepseek-ai/dsh-client-ui-workspace": "workspace:^",
+@@ -100,6 +101,7 @@
+     "@deepseek-ai/dsh-storage": "workspace:^",
+     "@deepseek-ai/dsh-storage-domain": "workspace:^",
+     "@deepseek-ai/dsh-storage-json": "workspace:^",
++    "@deepseek-ai/dsh-usage-query": "workspace:^",
+     "@deepseek-ai/dsh-workspace": "workspace:^",
+     "@deepseek-ai/schemastery": "workspace:^",
+     "commander": "^15.0.0"
+diff --git a/packages/client/connection/src/client/api.ts b/packages/client/connection/src/client/api.ts
+index 1b7627b..ef8875a 100644
+--- a/packages/client/connection/src/client/api.ts
++++ b/packages/client/connection/src/client/api.ts
+@@ -18,6 +18,7 @@ export type {
+   CredentialsApi, CredentialView, ConfigurableProviderView, DiscoveredModelView, LlmApi,
+   SubagentsApi, SubagentAddress, SubagentCatalog, SubagentListEntry, SubagentPromptReceipt,
+   JobView,
++  UsageApi, UsageDimension, UsageQueryResult, UsageRow, UsageTokenTotals,
+ } from '@deepseek-ai/dsh-host-apiproxy/api'
+ export type { ToolCallView, ToolResultView } from '@deepseek-ai/dsh-tools/presentation'
+ export type {
+diff --git a/packages/client/connection/src/client/fixture.ts b/packages/client/connection/src/client/fixture.ts
+index dd05664..9e780fc 100644
+--- a/packages/client/connection/src/client/fixture.ts
++++ b/packages/client/connection/src/client/fixture.ts
+@@ -2962,6 +2962,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
+         models: fixtureModelGroups().flatMap(group => group.models.map(model => ({ id: model.id, name: model.name }))),
+       }),
+     },
++    usage: {
++      // The fixture corpus has no provider-reported usage, so the aggregation
++      // is an empty result — enough for a surface to exercise the modal.
++      query: request => ok(request, {
++        rows: [],
++        total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 },
++      }),
++    },
+     respond(message: ClientResponse): Promise<RpcReceipt> {
+       // Same routing discipline as the host: rpcId first, then the payload's
+       // audit correlation; a settled or unknown id is not-pending.
+@@ -3129,6 +3137,7 @@ export class FixtureApiClient extends AbstractApiClient {
+       case 'llm.providers': return this.api.llm.providers(request)
+       case 'llm.models': return this.api.llm.models(request)
+       case 'llm.discoverModels': return this.api.llm.discoverModels(request, signal)
++      case 'usage.query': return this.api.usage.query(request)
+     }
+   }
+ 
+diff --git a/packages/client/connection/src/client/index.ts b/packages/client/connection/src/client/index.ts
+index c4470b1..7b2bf1f 100644
+--- a/packages/client/connection/src/client/index.ts
++++ b/packages/client/connection/src/client/index.ts
+@@ -29,6 +29,7 @@ export type {
+   GoalsApi, GoalRef,
+   SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView,
+   CredentialsApi, CredentialView, ConfigurableProviderView, DiscoveredModelView, LlmApi,
++  UsageApi, UsageDimension, UsageQueryResult, UsageRow, UsageTokenTotals,
+ } from './api.ts'
+ export {
+   RpcId,
+diff --git a/packages/client/connection/tests/fake-api.client.ts b/packages/client/connection/tests/fake-api.client.ts
+index bee4fc0..4216c4e 100644
+--- a/packages/client/connection/tests/fake-api.client.ts
++++ b/packages/client/connection/tests/fake-api.client.ts
+@@ -224,6 +224,13 @@ export class FakeApiClient implements IApiClient {
+     discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
+   }
+ 
++  readonly usage: IApiClient['usage'] = {
++    query: payload => this.record('usage.query', payload, Promise.resolve(ok({
++      rows: [],
++      total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 },
++    }))),
++  }
++
+   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
+   suppressStreamOpen = false
+ 
+diff --git a/packages/client/runtime/tests/fake-api.client.ts b/packages/client/runtime/tests/fake-api.client.ts
+index 33a0efb..48c5688 100644
+--- a/packages/client/runtime/tests/fake-api.client.ts
++++ b/packages/client/runtime/tests/fake-api.client.ts
+@@ -277,6 +277,13 @@ export class FakeApiClient implements IApiClient {
+     discoverModels: payload => this.record('llm.discoverModels', payload, Promise.resolve(ok({ models: [] }))),
+   }
+ 
++  readonly usage: IApiClient['usage'] = {
++    query: payload => this.record('usage.query', payload, Promise.resolve(ok({
++      rows: [],
++      total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 },
++    }))),
++  }
++
+   /** When true, streams never fire onOpen (misbehaving-carrier material for the handshake timeout guard). */
+   suppressStreamOpen = false
+ 
+diff --git a/packages/client/ui-usage/README.i18n.yaml b/packages/client/ui-usage/README.i18n.yaml
+new file mode 100644
+index 0000000..9dc9a57
+--- /dev/null
++++ b/packages/client/ui-usage/README.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write packages/client/ui-usage/README.md
++README.md: b5c0173b22011fd0dc43d5be46cd4b1ac1873f7d
++README.zh.md: 2624b4a4b72de9871e4dfd994c70e5184ef635f1
+diff --git a/packages/client/ui-usage/README.md b/packages/client/ui-usage/README.md
+new file mode 100644
+index 0000000..b5c0173
+--- /dev/null
++++ b/packages/client/ui-usage/README.md
+@@ -0,0 +1,33 @@
++# @deepseek-ai/dsh-client-ui-usage
++
++English | [中文](README.zh.md)
++
++Token usage statistics panel for the Web GUI: a sidebar-foot trigger (icon-only on the collapsed rail) that opens a modal over the `usage.query` API. The panel combines date presets (today / last 7 days / last 30 days / all time, or two custom date inputs) with free-form grouping — any non-empty combination of **day / model / session** — and renders a bar strip for the first grouped dimension plus a grouped totals table (input, output, cache read, cache write, total, requests) with a grand-total footer.
++
++The panel is a **snapshot**: it captures the open moment as the `asOf` cutoff and sends it with every query, so usage produced after the panel opened stays out of the view (the summary shows the cutoff time); closing and reopening the panel refreshes the moment.
++
++## Data flow
++
++Every control change issues one unary `usage.query` call carrying the frozen `asOf` cutoff; the plugin holds no state beyond the trigger's component-local open flag. Rows carry exactly the requested dimensions, so the table headers and the bar labels follow the selection. Unknown-model samples render a localized `unknown model` label. Transport-level failures (abort, timeout, connection loss) surface as the error note instead of an endless spinner.
++
++## Composition
++
++```yaml
++- id: ui-usage
++  name: '@deepseek-ai/dsh-client-ui-usage'
++```
++
++The node half is inert (the plugin appears in the Loader tree); the browser half registers the `sidebar.footer.action` entry and the `usage` locale namespace. Requires the connection (for the API face), slots, and locale services, all present in the web bundle.
++
++## Model Experience
++
++None, as the panel only calls the trusted read-only usage domain and renders its answer; it never sends a prompt, message, schema, tool, or model request.
++
++#### KV Cache effect
++
++None.
++
++## Known Limitations and Deferred Work
++
++- **Data is as fresh as the last query** — the panel does not subscribe to session events; a long-open panel shows the corpus as of its last control change.
++- **Bars normalize to the largest row** — a single outlier row makes smaller rows visually tiny; a log-scale toggle is deferred.
+diff --git a/packages/client/ui-usage/README.zh.md b/packages/client/ui-usage/README.zh.md
+new file mode 100644
+index 0000000..2624b4a
+--- /dev/null
++++ b/packages/client/ui-usage/README.zh.md
+@@ -0,0 +1,33 @@
++# @deepseek-ai/dsh-client-ui-usage
++
++[English](README.md) | 中文
++
++Web 界面的 Token 用量统计面板：侧边栏底部一个触发器（折叠栏只显示图标），点击打开基于 `usage.query` API 的模态面板。面板把日期预设（今天 / 近 7 天 / 近 30 天 / 全部，或两个自定义日期输入）与自由分组结合起来——**天 / 模型 / 会话** 的任意非空组合——并渲染首个分组维度的条形图加分组汇总表（输入、输出、缓存读、缓存写、合计、请求数），底部带总计行。
++
++面板是**快照式**的：打开瞬间被捕获为 `asOf` 截止时刻并随每次查询发送，因此面板打开后新产生的用量不会进入视图（汇总行显示截止时间）；关闭并重新打开面板会刷新截止时刻。
++
++## 数据流
++
++每次控件变更都会发起一次携带冻结 `asOf` 截止的一元 `usage.query` 调用；插件除触发器的组件内打开标志外不持有任何状态。行只携带请求的维度，因此表头与条形图标签随选择变化。无请求头的样本显示本地化的"未知模型"标签。传输层失败（中止、超时、连接断开）会显示为错误提示，而不是无限转圈。
++
++## 装配
++
++```yaml
++- id: ui-usage
++  name: '@deepseek-ai/dsh-client-ui-usage'
++```
++
++主机半是惰性的（插件出现在 Loader 树中）；浏览器半注册 `sidebar.footer.action` 条目和 `usage` 语言命名空间。需要 connection（提供 API 面）、slots 与 locale 服务，Web bundle 均已装配。
++
++## 模型体验
++
++无：面板只调用受信的只读 usage 域并渲染其结果；从不发送提示词、消息、模式、工具或模型请求。
++
++#### KV 缓存影响
++
++无。
++
++## 已知限制与后续工作
++
++- **数据新鲜度以最近一次查询为准**——面板不订阅会话事件；长时间打开的面板显示的是最近一次控件变更时的语料。
++- **条形图按最大行归一化**——单个异常大的行会让其余行视觉上变得很小；对数刻度开关留待后续。
+diff --git a/packages/client/ui-usage/package.json b/packages/client/ui-usage/package.json
+new file mode 100644
+index 0000000..578ec1c
+--- /dev/null
++++ b/packages/client/ui-usage/package.json
+@@ -0,0 +1,80 @@
++{
++  "name": "@deepseek-ai/dsh-client-ui-usage",
++  "description": "Token usage statistics panel: sidebar-foot trigger and modal over the usage.query API",
++  "version": "0.1.0-rc.5",
++  "type": "module",
++  "main": "lib/index.js",
++  "types": "lib/types/index.d.ts",
++  "exports": {
++    ".": {
++      "types": "./lib/types/index.d.ts",
++      "default": "./lib/index.js"
++    },
++    "./invariant": {
++      "types": "./lib/types/invariant.d.ts",
++      "default": "./lib/invariant.js"
++    },
++    "./client": {
++      "types": "./lib/types/client/index.d.ts",
++      "default": "./lib/client.js"
++    },
++    "./src/*": "./src/*",
++    "./package.json": "./package.json"
++  },
++  "dsh": {
++    "client": {
++      "inject": [
++        "@deepseek-ai/dsh-client-locale",
++        "@deepseek-ai/dsh-client-runtime",
++        "@deepseek-ai/dsh-client-ui-primitives",
++        "@deepseek-ai/dsh-client-ui-sidebar"
++      ],
++      "platform": "web"
++    }
++  },
++  "scripts": {
++    "bundle": "tsdown",
++    "watch": "tsdown --watch"
++  },
++  "license": "MIT",
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
++    "directory": "packages/client/ui-usage"
++  },
++  "publishConfig": {
++    "access": "public"
++  },
++  "dependencies": {
++    "react": "^18.2.0"
++  },
++  "peerDependencies": {
++    "@deepseek-ai/dsh-api-remotes": "workspace:^",
++    "@deepseek-ai/dsh-client-locale": "workspace:^",
++    "@deepseek-ai/dsh-client-runtime": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
++    "@deepseek-ai/dsh-invariants": "workspace:^",
++    "@deepseek-ai/cordis": "workspace:^"
++  },
++  "devDependencies": {
++    "@deepseek-ai/dsh-api-remotes": "workspace:^",
++    "@deepseek-ai/dsh-client-locale": "workspace:^",
++    "@deepseek-ai/dsh-client-runtime": "workspace:^",
++    "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-primitives": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
++    "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
++    "@deepseek-ai/dsh-invariants": "workspace:^",
++    "@testing-library/react": "^16.3.2",
++    "@types/react": "~18.3.1",
++    "@deepseek-ai/cordis": "workspace:^"
++  },
++  "files": [
++    "lib/index.js",
++    "lib/invariant.js",
++    "lib/client.js",
++    "lib/types/**/*.d.ts"
++  ]
++}
+diff --git a/packages/client/ui-usage/src/client/UsagePanel.module.css b/packages/client/ui-usage/src/client/UsagePanel.module.css
+new file mode 100644
+index 0000000..de8900a
+--- /dev/null
++++ b/packages/client/ui-usage/src/client/UsagePanel.module.css
+@@ -0,0 +1,203 @@
++.overlay {
++  position: fixed;
++  inset: 0;
++  z-index: 100;
++}
++
++.mask {
++  position: absolute;
++  inset: 0;
++  background: var(--dsw-alias-bg-mask-1);
++  backdrop-filter: var(--dsw-mask-blur);
++}
++
++.panel {
++  position: absolute;
++  top: 50%;
++  left: 50%;
++  transform: translate(-50%, -50%);
++  display: flex;
++  flex-direction: column;
++  gap: 12px;
++  width: min(760px, calc(100vw - 48px));
++  max-height: min(680px, calc(100vh - 48px));
++  padding: 16px;
++  border-radius: 12px;
++  background: var(--dsw-alias-bg-layer-2);
++  box-shadow: var(--dsw-shadow-lv3);
++  color: var(--dsw-alias-label-primary);
++  overflow: auto;
++}
++
++.header {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 8px;
++}
++
++.title {
++  margin: 0;
++  font-size: 15px;
++  font-weight: 600;
++  line-height: 22px;
++}
++
++.close {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  width: 24px;
++  height: 24px;
++  border: 0;
++  border-radius: 6px;
++  background: transparent;
++  color: var(--dsw-alias-label-tertiary);
++  font-size: 12px;
++  cursor: pointer;
++}
++
++.close:hover,
++.close:focus-visible {
++  color: var(--dsw-alias-label-secondary);
++  background: var(--dsw-alias-interactive-bg-hover);
++}
++
++.controls {
++  display: flex;
++  flex-direction: column;
++  gap: 8px;
++}
++
++.chips {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 6px;
++}
++
++.chip {
++  min-height: 24px;
++  padding: 2px 10px;
++  border: 0;
++  border-radius: 999px;
++  background: var(--dsw-alias-interactive-bg-hover);
++  color: var(--dsw-alias-label-secondary);
++  font-size: 12px;
++  line-height: 18px;
++  cursor: pointer;
++}
++
++.chip.active {
++  background: var(--dsw-specific-sidebar-nav-item-active);
++  color: var(--dsw-alias-label-primary);
++}
++
++.range {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++}
++
++.range input {
++  color-scheme: dark;
++  min-height: 26px;
++  padding: 2px 6px;
++  border: 1px solid var(--dsw-alias-line-strong);
++  border-radius: 6px;
++  background: transparent;
++  color: var(--dsw-alias-label-primary);
++  font-size: 12px;
++}
++
++.note {
++  margin: 0;
++  color: var(--dsw-alias-label-secondary);
++  font-size: 13px;
++  line-height: 20px;
++}
++
++.summary {
++  margin: 0;
++  font-size: 13px;
++  font-weight: 600;
++  line-height: 20px;
++}
++
++.bars {
++  display: flex;
++  flex-direction: column;
++  gap: 4px;
++}
++
++.barRow {
++  display: grid;
++  grid-template-columns: 110px minmax(0, 1fr) 72px;
++  align-items: center;
++  gap: 8px;
++}
++
++.barLabel {
++  overflow: hidden;
++  color: var(--dsw-alias-label-secondary);
++  font-size: 12px;
++  line-height: 18px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.barTrack {
++  height: 8px;
++  border-radius: 999px;
++  background: var(--dsw-alias-interactive-bg-hover);
++  overflow: hidden;
++}
++
++.barFill {
++  height: 100%;
++  border-radius: 999px;
++  background: var(--dsw-specific-sidebar-nav-item-active);
++}
++
++.barValue {
++  color: var(--dsw-alias-label-secondary);
++  font-size: 12px;
++  line-height: 18px;
++  text-align: right;
++  font-variant-numeric: tabular-nums;
++}
++
++.table {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 12px;
++  line-height: 18px;
++  font-variant-numeric: tabular-nums;
++}
++
++.table th,
++.table td {
++  padding: 4px 8px;
++  border-bottom: 1px solid var(--dsw-alias-line-strong);
++  text-align: right;
++  white-space: nowrap;
++}
++
++.table th {
++  color: var(--dsw-alias-label-tertiary);
++  font-weight: 500;
++}
++
++.table td {
++  color: var(--dsw-alias-label-primary);
++}
++
++.table th:first-child,
++.table td:first-child {
++  text-align: left;
++}
++
++.table tfoot th,
++.table tfoot td {
++  font-weight: 600;
++  border-bottom: 0;
++}
+diff --git a/packages/client/ui-usage/src/client/UsagePanel.tsx b/packages/client/ui-usage/src/client/UsagePanel.tsx
+new file mode 100644
+index 0000000..13c344d
+--- /dev/null
++++ b/packages/client/ui-usage/src/client/UsagePanel.tsx
+@@ -0,0 +1,239 @@
++/**
++ * Usage statistics modal: date presets + group-by chips over the
++ * `usage.query` remote, rendered as a daily/model/session bar strip plus a
++ * grouped totals table. Component-local viewing state only — every datum
++ * comes from one unary call, refetched when the range or grouping changes.
++ */
++import { useEffect, useMemo, useRef, useState } from 'react'
++import type { IApiClient, UsageDimension, UsageQueryResult, UsageRow } from '@deepseek-ai/dsh-api-remotes/client'
++import type { UsageKey } from './locales.ts'
++import css from './UsagePanel.module.css'
++
++/** Bound translate for the `usage` namespace. */
++export type Translate = (key: UsageKey, params?: Record<string, string | number>) => string
++
++/** Panel props: the caller injects the API face and copy; the panel owns its state. */
++export interface UsagePanelProps {
++  /** The API face; only the usage domain is read. */
++  api: Pick<IApiClient, 'usage'>
++  /** Bound namespace translate. */
++  t: Translate
++  /** Close the modal (mask click, header button, or Escape). */
++  onClose: () => void
++}
++
++/** Date-range presets; `custom` means the two date inputs own the range. */
++export type UsagePreset = 'today' | 'days7' | 'days30' | 'all' | 'custom'
++
++const DIMENSIONS: readonly UsageDimension[] = ['day', 'model', 'session']
++
++/** Local calendar day literal (`YYYY-MM-DD`) at `offsetDays` from today. */
++export function localDay(offsetDays: number): string {
++  const date = new Date()
++  date.setDate(date.getDate() + offsetDays)
++  const month = String(date.getMonth() + 1).padStart(2, '0')
++  const day = String(date.getDate()).padStart(2, '0')
++  return `${String(date.getFullYear())}-${month}-${day}`
++}
++
++const columnKey = (dimension: UsageDimension): UsageKey =>
++  dimension === 'day' ? 'column.day' : dimension === 'model' ? 'column.model' : 'column.session'
++
++/** Rows with their first grouped dimension as the bar label. */
++function barsOf(data: UsageQueryResult | undefined, first: UsageDimension | undefined): { label: string; value: number }[] {
++  if (data === undefined) return []
++  /* v8 ignore next 2 -- the toggle keeps at least one dimension, so `first` is always defined */
++  if (first === undefined) return []
++  const field = first === 'day' ? 'day' : first === 'model' ? 'model' : 'sessionId'
++  /* v8 ignore next -- every row carries the selected dimension field, so the fallback is unreachable */
++  return data.rows.map(row => ({ label: row[field] ?? '', value: row.totalTokens }))
++}
++
++/** Cell text for one dimension field: unknown models translate, absent fields dash. */
++function cellOf(row: UsageRow, dimension: UsageDimension, t: Translate): string {
++  const value = dimension === 'day' ? row.day : dimension === 'model' ? row.model : row.sessionId
++  /* v8 ignore next -- cellOf runs only for grouped dimensions, whose rows always carry the field */
++  if (value === undefined || value === '') return '—'
++  if (dimension === 'model' && value === 'unknown') return t('model.unknown')
++  return value
++}
++
++/**
++ * The usage modal.
++ * @param props - injected API face, copy, and close path.
++ */
++export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
++  const [preset, setPreset] = useState<UsagePreset>('days7')
++  const [from, setFrom] = useState<string>(() => localDay(-6))
++  const [to, setTo] = useState<string>(() => localDay(0))
++  // The open moment is the statistics cutoff: usage produced after the panel
++  // opened stays out of this view (a reopen captures a fresh moment).
++  const [asOf] = useState(() => Date.now())
++  const [groupBy, setGroupBy] = useState<readonly UsageDimension[]>(['day', 'model'])
++  const [data, setData] = useState<UsageQueryResult | undefined>(undefined)
++  const [error, setError] = useState<string | undefined>(undefined)
++  const [loading, setLoading] = useState(true)
++  const titleId = useRef(`usage-title-${Math.random().toString(36).slice(2)}`).current
++  const groupKey = groupBy.join(',')
++
++  const applyPreset = (next: UsagePreset): void => {
++    setPreset(next)
++    if (next === 'today') { setFrom(localDay(0)); setTo(localDay(0)) }
++    else if (next === 'days7') { setFrom(localDay(-6)); setTo(localDay(0)) }
++    else if (next === 'days30') { setFrom(localDay(-29)); setTo(localDay(0)) }
++    else { setFrom(''); setTo('') }
++  }
++
++  const toggleDimension = (dimension: UsageDimension): void => {
++    setGroupBy((current) => {
++      if (current.includes(dimension)) {
++        // The last dimension cannot be switched off: a query must group by something.
++        return current.length > 1 ? current.filter(d => d !== dimension) : current
++      }
++      return [...current, dimension]
++    })
++  }
++
++  useEffect(() => {
++    let cancelled = false
++    setLoading(true)
++    void api.usage.query({
++      ...(from === '' ? {} : { from }),
++      ...(to === '' ? {} : { to }),
++      asOf,
++      groupBy: [...groupBy],
++    }).then((response) => {
++      if (cancelled) return
++      setLoading(false)
++      if (response.result.ok) {
++        setData(response.result.value)
++        setError(undefined)
++      } else {
++        setError(response.result.error.message)
++      }
++    }, (reason: unknown) => {
++      // The carrier can reject without an RPC result (transport abort,
++      // timeout, connection loss); surface it instead of spinning forever.
++      if (cancelled) return
++      setLoading(false)
++      setError(reason instanceof Error ? reason.message : String(reason))
++    })
++    return () => { cancelled = true }
++  }, [api, from, to, groupKey])
++
++  useEffect(() => {
++    const onKeyDown = (e: KeyboardEvent): void => {
++      if (e.key === 'Escape') onClose()
++    }
++    document.addEventListener('keydown', onKeyDown)
++    return () => { document.removeEventListener('keydown', onKeyDown) }
++  }, [onClose])
++
++  const bars = useMemo(() => barsOf(data, groupBy[0]), [data, groupBy])
++  const max = Math.max(1, ...bars.map(bar => bar.value))
++  const totalRequests = data === undefined ? 0 : data.rows.reduce((sum, row) => sum + row.requests, 0)
++
++  return (
++    <div className={css.overlay} role="presentation">
++      <div className={css.mask} aria-hidden="true" onClick={onClose} />
++      <div className={css.panel} role="dialog" aria-modal="true" aria-labelledby={titleId}>
++        <header className={css.header}>
++          <h2 className={css.title} id={titleId}>{t('panel.title')}</h2>
++          <button type="button" className={css.close} aria-label={t('panel.close')} onClick={onClose}>
++            ✕
++          </button>
++        </header>
++
++        <div className={css.controls}>
++          <div className={css.chips} role="group" aria-label={t('panel.title')}>
++            {(['today', 'days7', 'days30', 'all'] as const).map(presetId => (
++              <button
++                key={presetId}
++                type="button"
++                className={preset === presetId ? `${css.chip} ${css.active}` : css.chip}
++                aria-pressed={preset === presetId}
++                onClick={() => { applyPreset(presetId) }}
++              >
++                {t(`preset.${presetId}`)}
++              </button>
++            ))}
++          </div>
++          <div className={css.range}>
++            <input type="date" aria-label={t('preset.custom')} value={from} onChange={(e) => { setFrom(e.target.value); setPreset('custom') }} />
++            <span>–</span>
++            <input type="date" aria-label={t('preset.custom')} value={to} onChange={(e) => { setTo(e.target.value); setPreset('custom') }} />
++          </div>
++          <div className={css.chips} role="group" aria-label={t('panel.title')}>
++            {DIMENSIONS.map(dimension => (
++              <button
++                key={dimension}
++                type="button"
++                className={groupBy.includes(dimension) ? `${css.chip} ${css.active}` : css.chip}
++                aria-pressed={groupBy.includes(dimension)}
++                onClick={() => { toggleDimension(dimension) }}
++              >
++                {t(columnKey(dimension))}
++              </button>
++            ))}
++          </div>
++        </div>
++
++        {loading && <p className={css.note}>{t('panel.loading')}</p>}
++        {!loading && error !== undefined && <p className={css.note}>{t('panel.error', { message: error })}</p>}
++        {!loading && error === undefined && data !== undefined && data.rows.length === 0
++          && <p className={css.note}>{t('panel.empty')}</p>}
++        {!loading && error === undefined && data !== undefined && data.rows.length > 0 && (
++          <>
++            <p className={css.summary}>
++              {t('summary.total', { tokens: data.total.totalTokens.toLocaleString(), requests: totalRequests.toLocaleString() })}
++              <span className={css.asOf}> {t('panel.asOf', { time: new Date(asOf).toLocaleString() })}</span>
++            </p>
++            <div className={css.bars} role="img" aria-label={t('panel.title')}>
++              {bars.map(bar => (
++                <div key={bar.label} className={css.barRow}>
++                  <span className={css.barLabel}>{bar.label}</span>
++                  <div className={css.barTrack}>
++                    <div className={css.barFill} style={{ width: `${(bar.value / max) * 100}%` }} />
++                  </div>
++                  <span className={css.barValue}>{bar.value.toLocaleString()}</span>
++                </div>
++              ))}
++            </div>
++            <table className={css.table}>
++              <thead>
++                <tr>
++                  {groupBy.map(dimension => <th key={dimension} scope="col">{t(columnKey(dimension))}</th>)}
++                  <th scope="col">{t('column.input')}</th>
++                  <th scope="col">{t('column.output')}</th>
++                  <th scope="col">{t('column.cacheRead')}</th>
++                  <th scope="col">{t('column.cacheWrite')}</th>
++                  <th scope="col">{t('column.total')}</th>
++                  <th scope="col">{t('column.requests')}</th>
++                </tr>
++              </thead>
++              <tbody>
++                {data.rows.map((row, index) => (
++                  <tr key={`${row.day ?? ''}-${row.model ?? ''}-${row.sessionId ?? ''}-${index}`}>
++                    {groupBy.map(dimension => <td key={dimension}>{cellOf(row, dimension, t)}</td>)}
++                    <td>{row.inputTokens.toLocaleString()}</td>
++                    <td>{row.outputTokens.toLocaleString()}</td>
++                    <td>{row.cacheReadTokens.toLocaleString()}</td>
++                    <td>{row.cacheWriteTokens.toLocaleString()}</td>
++                    <td>{row.totalTokens.toLocaleString()}</td>
++                    <td>{row.requests.toLocaleString()}</td>
++                  </tr>
++                ))}
++              </tbody>
++              <tfoot>
++                <tr>
++                  <th scope="row" colSpan={groupBy.length + 5}>{t('column.total')}</th>
++                  <td>{totalRequests.toLocaleString()}</td>
++                </tr>
++              </tfoot>
++            </table>
++          </>
++        )}
++      </div>
++    </div>
++  )
++}
+diff --git a/packages/client/ui-usage/src/client/UsageTrigger.module.css b/packages/client/ui-usage/src/client/UsageTrigger.module.css
+new file mode 100644
+index 0000000..2515b17
+--- /dev/null
++++ b/packages/client/ui-usage/src/client/UsageTrigger.module.css
+@@ -0,0 +1,30 @@
++.trigger {
++  display: inline-flex;
++  align-items: center;
++  gap: 6px;
++  min-height: 28px;
++  padding: 3px 6px;
++  border: 0;
++  border-radius: 6px;
++  background: transparent;
++  color: var(--dsw-alias-label-tertiary);
++  font-size: 12px;
++  line-height: 18px;
++  cursor: pointer;
++}
++
++.trigger:hover,
++.trigger:focus-visible {
++  color: var(--dsw-alias-label-secondary);
++  background: var(--dsw-alias-interactive-bg-hover);
++}
++
++.icon {
++  flex: none;
++}
++
++.label {
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
+diff --git a/packages/client/ui-usage/src/client/UsageTrigger.tsx b/packages/client/ui-usage/src/client/UsageTrigger.tsx
+new file mode 100644
+index 0000000..2647eab
+--- /dev/null
++++ b/packages/client/ui-usage/src/client/UsageTrigger.tsx
+@@ -0,0 +1,44 @@
++/**
++ * Sidebar-foot trigger for the usage modal: an icon row that expands to an
++ * icon + label when the sidebar is wide. Component-local open state only.
++ */
++import { useState } from 'react'
++import { IconDataOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
++import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
++import type { IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
++import { UsagePanel, type Translate } from './UsagePanel.tsx'
++import css from './UsageTrigger.module.css'
++
++/** Props injected by the slot registry: the API face and bound copy. */
++export interface UsageTriggerInjected {
++  /** The API face; only the usage domain is read. */
++  api: Pick<IApiClient, 'usage'>
++  /** Bound namespace translate. */
++  t: Translate
++}
++
++/** Full props: sidebar owner share plus injected face. */
++export type UsageTriggerProps = SidebarFooterActionOwnerProps & UsageTriggerInjected
++
++/**
++ * The sidebar-foot trigger row and its modal.
++ * @param props - owner share plus injected API face and copy.
++ */
++export function UsageTrigger({ wide, api, t }: UsageTriggerProps) {
++  const [open, setOpen] = useState(false)
++  return (
++    <>
++      <button
++        type="button"
++        className={css.trigger}
++        aria-label={t('trigger.aria')}
++        title={t('trigger.label')}
++        onClick={() => { setOpen(true) }}
++      >
++        <IconDataOutline16 size={16} className={css.icon} />
++        {wide && <span className={css.label}>{t('trigger.label')}</span>}
++      </button>
++      {open && <UsagePanel api={api} t={t} onClose={() => { setOpen(false) }} />}
++    </>
++  )
++}
+diff --git a/packages/client/ui-usage/src/client/index.ts b/packages/client/ui-usage/src/client/index.ts
+new file mode 100644
+index 0000000..114585a
+--- /dev/null
++++ b/packages/client/ui-usage/src/client/index.ts
+@@ -0,0 +1,44 @@
++/**
++ * Usage statistics plugin, browser half: contributes the sidebar-foot trigger
++ * that opens the usage modal. The data arrives through one unary
++ * `usage.query` call per control change, so the plugin holds no state of its
++ * own beyond the trigger's component-local open flag.
++ */
++import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
++import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
++import { UsageTrigger, type UsageTriggerInjected } from './UsageTrigger.tsx'
++import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
++import type {} from '@deepseek-ai/dsh-client-locale/client'
++import { en, NS, zh, type UsageKey } from './locales.ts'
++
++declare module '@deepseek-ai/dsh-client-ui-slots' {
++  interface LocaleNamespaceMap {
++    /** Token usage statistics copy. */
++    'usage': UsageKey
++  }
++}
++
++export type { UsagePanelProps, Translate, UsagePreset } from './UsagePanel.tsx'
++export type { UsageTriggerInjected, UsageTriggerProps } from './UsageTrigger.tsx'
++
++/** Required services for locale registration and the footer-action contribution. */
++export const inject = ['slots', 'locale', 'connection']
++
++/**
++ * Client plugin body: register the dictionaries and the footer action.
++ * @param ctx - client root context.
++ */
++export function apply(ctx: ClientContext): void {
++  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-usage: dictionaries')
++  const connection = ctx.get('connection') as ConnectionHandle
++  const t = ctx.locale.bind(NS) as UsageTriggerInjected['t']
++  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
++    name: 'sidebar.footer.action',
++    id: 'usage',
++    // After the settings seat: the stats action is an auxiliary foot entry.
++    order: 30,
++    locale: NS,
++    /* v8 ignore next -- the inject face runs only at render time, outside the plugin test bench */
++    inject: (): UsageTriggerInjected => ({ api: connection.api, t }),
++  }, UsageTrigger))
++}
+diff --git a/packages/client/ui-usage/src/client/locales.ts b/packages/client/ui-usage/src/client/locales.ts
+new file mode 100644
+index 0000000..caf0694
+--- /dev/null
++++ b/packages/client/ui-usage/src/client/locales.ts
+@@ -0,0 +1,69 @@
++/** `usage` namespace dictionaries. */
++
++/** Dictionary namespace owned by this plugin. */
++export const NS = 'usage'
++
++/** Simplified Chinese dictionary (the key-set source of truth). */
++export const zh = {
++  'trigger.label': '用量统计',
++  'trigger.aria': '打开 Token 用量统计',
++  'panel.title': 'Token 用量统计',
++  'panel.close': '关闭',
++  'panel.loading': '加载中…',
++  'panel.empty': '该范围内暂无用量记录',
++  'panel.error': '查询失败：{message}',
++  'preset.today': '今天',
++  'preset.days7': '近 7 天',
++  'preset.days30': '近 30 天',
++  'preset.all': '全部',
++  'preset.custom': '自定义',
++  'group.day': '按天',
++  'group.model': '按模型',
++  'group.session': '按会话',
++  'column.day': '日期',
++  'column.model': '模型',
++  'column.session': '会话',
++  'column.input': '输入',
++  'column.output': '输出',
++  'column.cacheRead': '缓存读',
++  'column.cacheWrite': '缓存写',
++  'column.total': '合计',
++  'column.requests': '请求数',
++  'summary.total': '共 {tokens} tokens，{requests} 次请求',
++  'panel.asOf': '（统计截止 {time}）',
++  'model.unknown': '未知模型',
++} as const
++
++/** English dictionary, key-identical to the Chinese source of truth. */
++export const en: Record<UsageKey, string> = {
++  'trigger.label': 'Usage stats',
++  'trigger.aria': 'Open token usage statistics',
++  'panel.title': 'Token usage',
++  'panel.close': 'Close',
++  'panel.loading': 'Loading…',
++  'panel.empty': 'No usage records in this range',
++  'panel.error': 'Query failed: {message}',
++  'preset.today': 'Today',
++  'preset.days7': 'Last 7 days',
++  'preset.days30': 'Last 30 days',
++  'preset.all': 'All time',
++  'preset.custom': 'Custom',
++  'group.day': 'By day',
++  'group.model': 'By model',
++  'group.session': 'By session',
++  'column.day': 'Date',
++  'column.model': 'Model',
++  'column.session': 'Session',
++  'column.input': 'Input',
++  'column.output': 'Output',
++  'column.cacheRead': 'Cache read',
++  'column.cacheWrite': 'Cache write',
++  'column.total': 'Total',
++  'column.requests': 'Requests',
++  'summary.total': '{tokens} tokens across {requests} requests',
++  'panel.asOf': '(as of {time})',
++  'model.unknown': 'Unknown model',
++}
++
++/** Key domain of the `usage` namespace (zh is the source of truth). */
++export type UsageKey = keyof typeof zh
+diff --git a/packages/client/ui-usage/src/css-modules.d.ts b/packages/client/ui-usage/src/css-modules.d.ts
+new file mode 100644
+index 0000000..bc5e482
+--- /dev/null
++++ b/packages/client/ui-usage/src/css-modules.d.ts
+@@ -0,0 +1,6 @@
++declare module '*.module.css' {
++  const classes: Record<string, string>
++  export default classes
++}
++
++declare module '*.css'
+diff --git a/packages/client/ui-usage/src/index.ts b/packages/client/ui-usage/src/index.ts
+new file mode 100644
+index 0000000..0ba35bc
+--- /dev/null
++++ b/packages/client/ui-usage/src/index.ts
+@@ -0,0 +1,9 @@
++/**
++ * Token usage statistics plugin, node half. Pure UI plugin: the empty apply
++ * exists so the plugin appears in the host cordis.yml / Loader; the browser
++ * half ships via exports["./client"], discovered through the package.json
++ * dshClient declaration.
++ */
++
++/** Host plugin body — no host-side behavior for this source plugin. */
++export function apply(): void {}
+diff --git a/packages/client/ui-usage/src/invariant.ts b/packages/client/ui-usage/src/invariant.ts
+new file mode 100644
+index 0000000..139fd20
+--- /dev/null
++++ b/packages/client/ui-usage/src/invariant.ts
+@@ -0,0 +1,31 @@
++/**
++ * Package-owned invariant companion for `@deepseek-ai/dsh-client-ui-usage`.
++ * @module @deepseek-ai/dsh-client-ui-usage/invariant
++ */
++
++/* jscpd:ignore-start */
++import type { Context } from '@deepseek-ai/cordis'
++import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
++
++const PACKAGE_NAME = '@deepseek-ai/dsh-client-ui-usage'
++
++/** Cordis companion plugin name. */
++export const name = 'client-ui-usage-invariant'
++/** Service required before the companion can reserve package ownership. */
++export const inject = ['invariants']
++
++/**
++ * No runtime invariant: the plugin is a pure presentation face over the
++ * `usage.query` remote — it holds no owned state beyond component-local
++ * viewing state and registers no event consumers.
++ */
++const install: InvariantInstaller = () => {}
++
++/**
++ * Register this package's invariant companion.
++ * @param ctx - Cordis context carrying the invariant service.
++ * @returns the installed registration's disposer after setup succeeds.
++ */
++export const apply = (ctx: Context): Promise<() => void> =>
++  Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
++/* jscpd:ignore-end */
+diff --git a/packages/client/ui-usage/tests/browser-plugin.client.spec.ts b/packages/client/ui-usage/tests/browser-plugin.client.spec.ts
+new file mode 100644
+index 0000000..466fea6
+--- /dev/null
++++ b/packages/client/ui-usage/tests/browser-plugin.client.spec.ts
+@@ -0,0 +1,100 @@
++/**
++ * ui-usage plugin halves: the browser entry's dictionary and footer-action
++ * registrations against the real SlotRegistry (with fiber teardown proving
++ * removal — HMR safety), the inert node entry, and the invariant companion's
++ * ownership reservation.
++ */
++import { Context } from '@deepseek-ai/cordis'
++import { describe, expect, it } from 'vitest'
++import InvariantRegistry from '@deepseek-ai/dsh-invariants'
++import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
++import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
++import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
++import { apply, inject } from '../src/client/index.ts'
++import { apply as applyNode } from '../src/index.ts'
++import * as UsageInvariant from '../src/invariant.ts'
++import { en, NS, zh } from '../src/client/locales.ts'
++
++/** Empty usage query answer for the stubbed connection. */
++const EMPTY = {
++  rows: [],
++  total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 },
++}
++
++/** Slot ledger reader: entry ids currently registered in the footer action list. */
++function footerEntryIds(ctx: Context): (string | undefined)[] {
++  return ctx.slots
++    .entries('sidebar.footer.action')
++    .map(entry => entry.options.id)
++}
++
++/** Boot the browser half over a real slot tree that declares the footer action list. */
++async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
++  const ctx = new Context()
++  await ctx.plugin(SlotRegistry).await()
++  ctx.slots.register({
++    name: 'root',
++    children: {
++      'sidebar.footer.action': { kind: 'list', scope: 'root' },
++    },
++  } as never, () => null)
++  // The locale plugin binds a settings scope, which reads the connection handle
++  // and the forwarded-event port.
++  ctx.provide('connection', { api: { usage: { query: async () => ({ rpcId: 'x', result: { ok: true, value: EMPTY } }) } }, isLoopback: false } as never)
++  ctx.provide('remote', { $on: () => () => {} } as never)
++  ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
++  await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
++  const fiber = ctx.plugin({ inject: [...inject], apply })
++  await fiber.await()
++  return { ctx, fiber }
++}
++
++describe('ui-usage browser half', () => {
++  it('declares the services it binds', () => {
++    expect(inject).toEqual(['slots', 'locale', 'connection'])
++  })
++
++  it('registers the footer action, and fiber teardown removes it (HMR safety)', async () => {
++    const { ctx, fiber } = await bench()
++    expect(footerEntryIds(ctx)).toContain('usage')
++    await fiber.dispose()
++    expect(footerEntryIds(ctx)).not.toContain('usage')
++  })
++
++  it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
++    const { ctx, fiber } = await bench()
++    const translate = ctx.locale.bind(NS)
++    expect(translate('trigger.label')).toBe(zh['trigger.label'])
++    ctx.locale.setLocale('en')
++    expect(translate('trigger.label')).toBe(en['trigger.label'])
++
++    // Withdrawn dictionaries leave the key unresolved rather than translated.
++    await fiber.dispose()
++    expect(translate('trigger.label')).not.toBe(en['trigger.label'])
++  })
++
++  it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
++    expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
++  })
++})
++
++describe('ui-usage node half', () => {
++  it('contributes no host behavior', () => {
++    // The node half exists only so the plugin appears in the Loader tree.
++    expect(applyNode).not.toThrow()
++  })
++})
++
++describe('ui-usage invariant companion', () => {
++  it('reserves package ownership under its declared companion name', async () => {
++    const ctx = new Context()
++    await ctx.plugin(InvariantRegistry, { enabled: true })
++    const fiber = ctx.plugin(UsageInvariant)
++    await fiber.await()
++    expect(UsageInvariant.name).toBe('client-ui-usage-invariant')
++    expect(UsageInvariant.inject).toEqual(['invariants'])
++    // Emitting an unrelated event proves the companion installed no audit.
++    expect(() => { (ctx.emit as (event: string) => void)('slots/changed') }).not.toThrow()
++    await fiber.dispose()
++  })
++})
+diff --git a/packages/client/ui-usage/tests/usage-panel.client.spec.tsx b/packages/client/ui-usage/tests/usage-panel.client.spec.tsx
+new file mode 100644
+index 0000000..b49a3c3
+--- /dev/null
++++ b/packages/client/ui-usage/tests/usage-panel.client.spec.tsx
+@@ -0,0 +1,267 @@
++// @vitest-environment jsdom
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
++import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
++import type { IApiClient, UsageQueryResult, UsageRow } from '@deepseek-ai/dsh-api-remotes/client'
++import { UsagePanel, localDay, type UsagePanelProps } from '../src/client/UsagePanel.tsx'
++import { UsageTrigger } from '../src/client/UsageTrigger.tsx'
++import { zh } from '../src/client/locales.ts'
++
++afterEach(() => {
++  cleanup()
++  vi.restoreAllMocks()
++})
++
++const t: UsagePanelProps['t'] = makeTranslate(zh)
++
++const TOTAL = { inputTokens: 100, outputTokens: 50, cacheReadTokens: 10, cacheWriteTokens: 5, reasoningTokens: 3, totalTokens: 165 }
++
++const RESULT: UsageQueryResult = {
++  rows: [
++    { day: '2026-08-14', model: 'deepseek/deepseek-chat', requests: 2, inputTokens: 80, outputTokens: 40, cacheReadTokens: 10, cacheWriteTokens: 5, reasoningTokens: 3, totalTokens: 135 },
++    { day: '2026-08-15', model: 'deepseek/deepseek-reasoner', requests: 1, inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 30 },
++  ],
++  total: TOTAL,
++}
++
++/** Session-only rows (a session grouping never carries day or model fields). */
++const SESSION_ROWS: UsageQueryResult = {
++  rows: [
++    { sessionId: 's-1', requests: 2, inputTokens: 80, outputTokens: 40, cacheReadTokens: 10, cacheWriteTokens: 5, reasoningTokens: 3, totalTokens: 135 },
++    { sessionId: 's-2', requests: 1, inputTokens: 20, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 30 },
++  ],
++  total: TOTAL,
++}
++
++/** The frozen open moment: fake timers pin `Date.now()` for the whole suite. */
++const ASOF = new Date(2026, 7, 15, 12, 0, 0).getTime()
++
++/** Default payload: the days7 preset window plus the captured as-of moment. */
++const PAYLOAD = (over: Partial<Record<string, unknown>> = {}): Record<string, unknown> => ({
++  from: '2026-08-09',
++  to: '2026-08-15',
++  asOf: ASOF,
++  groupBy: ['day', 'model'],
++  ...over,
++})
++
++const ok = (value: UsageQueryResult) => ({ rpcId: 'r1' as never, result: { ok: true as const, value } })
++
++function stubApi(query: ReturnType<typeof vi.fn>): Pick<IApiClient, 'usage'> {
++  return { usage: { query } } as unknown as Pick<IApiClient, 'usage'>
++}
++
++/** Query stubs are awaited inside effects; flush microtasks before asserting. */
++async function flush(): Promise<void> {
++  await act(async () => { await Promise.resolve() })
++}
++
++describe('localDay', () => {
++  it('formats an offset local calendar day', () => {
++    expect(localDay(0)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
++  })
++})
++
++describe('UsagePanel', () => {
++  beforeEach(() => {
++    vi.useFakeTimers()
++    vi.setSystemTime(new Date(2026, 7, 15, 12, 0, 0))
++  })
++
++  it('renders the grouped table, bars, and summary once the query resolves', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++
++    expect(query).toHaveBeenCalledWith(PAYLOAD())
++    expect(screen.getByText(zh['summary.total'].replace('{tokens}', '165').replace('{requests}', '3'))).toBeTruthy()
++    const table = screen.getByRole('table')
++    expect(table.textContent).toContain('2026-08-14')
++    expect(table.textContent).toContain('deepseek/deepseek-reasoner')
++    expect(table.textContent).toContain('135')
++    expect(screen.getAllByRole('img')).toHaveLength(1)
++  })
++
++  it('shows the as-of cutoff next to the summary', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    const expected = zh['panel.asOf'].replace('{time}', new Date(ASOF).toLocaleString())
++    expect(screen.getByText(expected)).toBeTruthy()
++  })
++
++  it('keeps the open-moment cutoff stable across control changes', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    fireEvent.click(screen.getByRole('button', { name: zh['column.session'] }))
++    await flush()
++    fireEvent.click(screen.getByText(zh['preset.today']))
++    await flush()
++    const payloads = query.mock.calls.map(call => call[0] as Record<string, unknown>)
++    expect(payloads.every(payload => payload.asOf === ASOF)).toBe(true)
++    expect(payloads.map(payload => payload.asOf)).toEqual([ASOF, ASOF, ASOF])
++  })
++
++  it('shows the empty note for a zero-row result', async () => {
++    const query = vi.fn(async () => ok({ rows: [], total: TOTAL }))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    expect(screen.getByText(zh['panel.empty'])).toBeTruthy()
++  })
++
++  it('shows the error note when the query fails', async () => {
++    const query = vi.fn(async () => ({ rpcId: 'r1' as never, result: { ok: false as const, error: { code: 'internal' as const, message: 'boom', details: {} } } }))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    expect(screen.getByText(zh['panel.error'].replace('{message}', 'boom'))).toBeTruthy()
++  })
++
++  it('refetches when a group dimension is toggled on', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    fireEvent.click(screen.getByRole('button', { name: zh['column.session'] }))
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ groupBy: ['day', 'model', 'session'] }))
++  })
++
++  it('keeps the last dimension when the user switches the others off', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    fireEvent.click(screen.getByRole('button', { name: zh['column.day'] }))
++    fireEvent.click(screen.getByRole('button', { name: zh['column.model'] }))
++    await flush()
++    // Removing the only remaining dimension is a no-op: a query must group by something.
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ groupBy: ['model'] }))
++  })
++
++  it('shows the error note when the query rejects at the transport level', async () => {
++    const query = vi.fn(async () => { throw new Error('request aborted') })
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    expect(screen.getByText(zh['panel.error'].replace('{message}', 'request aborted'))).toBeTruthy()
++  })
++
++  it('shows a non-Error rejection reason as plain text', async () => {
++    const query = vi.fn(async () => { throw 'plain failure' })
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    expect(screen.getByText(zh['panel.error'].replace('{message}', 'plain failure'))).toBeTruthy()
++  })
++
++  it('ignores a cancelled in-flight rejection after unmount', async () => {
++    let reject!: (reason: unknown) => void
++    const query = vi.fn(() => new Promise((_resolve, rej) => { reject = rej }))
++    const { unmount } = render(<UsagePanel api={stubApi(query as never)} t={t} onClose={() => {}} />)
++    unmount()
++    await act(async () => { reject(new Error('late rejection')) })
++  })
++
++  it('applies the today preset as a same-day window', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    fireEvent.click(screen.getByText(zh['preset.today']))
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ from: localDay(0), to: localDay(0) }))
++  })
++
++  it('applies the week, month, and all-time presets', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    fireEvent.click(screen.getByText(zh['preset.days7']))
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ from: localDay(-6), to: localDay(0) }))
++    fireEvent.click(screen.getByText(zh['preset.days30']))
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ from: localDay(-29), to: localDay(0) }))
++    fireEvent.click(screen.getByText(zh['preset.all']))
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ from: undefined, to: undefined }))
++  })
++
++  it('renders session-grouped bars and table cells', async () => {
++    const query = vi.fn(async () => ok(SESSION_ROWS))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    fireEvent.click(screen.getByRole('button', { name: zh['column.day'] }))
++    fireEvent.click(screen.getByRole('button', { name: zh['column.session'] }))
++    fireEvent.click(screen.getByRole('button', { name: zh['column.model'] }))
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ groupBy: ['session'] }))
++    expect(screen.getAllByRole('img')).toHaveLength(1)
++    expect(screen.getByRole('table').textContent).toContain('s-1')
++  })
++
++  it('renders the unknown-model label for headerless usage', async () => {
++    const query = vi.fn(async () => ok({ ...RESULT, rows: [{ ...RESULT.rows[0], model: 'unknown' } as UsageRow] }))
++    render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    expect(screen.getByText(zh['model.unknown'])).toBeTruthy()
++  })
++
++  it('ignores a cancelled in-flight query after unmount', async () => {
++    let resolve!: (value: Awaited<ReturnType<typeof query>>) => void
++    const query = vi.fn(() => new Promise((r) => { resolve = r }))
++    const { unmount } = render(<UsagePanel api={stubApi(query as never)} t={t} onClose={() => {}} />)
++    unmount()
++    await act(async () => { resolve(ok(RESULT)) })
++  })
++
++  it('switches to the custom preset when a date input changes', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    const { container } = render(<UsagePanel api={stubApi(query)} t={t} onClose={() => {}} />)
++    await flush()
++    const inputs = container.querySelectorAll('input[type="date"]')
++    fireEvent.change(inputs[0]!, { target: { value: '2026-08-01' } })
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ from: '2026-08-01' }))
++    fireEvent.change(inputs[1]!, { target: { value: '2026-08-10' } })
++    await flush()
++    expect(query).toHaveBeenLastCalledWith(PAYLOAD({ from: '2026-08-01', to: '2026-08-10' }))
++  })
++
++  it('closes on Escape, the mask, and the header button', async () => {
++    const onClose = vi.fn()
++    const { container } = render(<UsagePanel api={stubApi(vi.fn(async () => ok(RESULT)))} t={t} onClose={onClose} />)
++    await flush()
++    // Non-Escape keys do not close the modal.
++    fireEvent.keyDown(document, { key: 'Enter' })
++    expect(onClose).not.toHaveBeenCalled()
++    fireEvent.keyDown(document, { key: 'Escape' })
++    expect(onClose).toHaveBeenCalledTimes(1)
++    fireEvent.click(container.querySelectorAll('div')[1]!)
++    expect(onClose).toHaveBeenCalledTimes(2)
++    fireEvent.click(screen.getByLabelText(zh['panel.close']))
++    expect(onClose).toHaveBeenCalledTimes(3)
++  })
++
++  it('shows the loading note while the query is in flight', async () => {
++    let resolve!: (value: Awaited<ReturnType<typeof query>>) => void
++    const query = vi.fn(() => new Promise((r) => { resolve = r }))
++    render(<UsagePanel api={stubApi(query as never)} t={t} onClose={() => {}} />)
++    expect(screen.getByText(zh['panel.loading'])).toBeTruthy()
++    await act(async () => { resolve(ok(RESULT)) })
++    await flush()
++    expect(screen.getByRole('table')).toBeTruthy()
++  })
++})
++
++describe('UsageTrigger', () => {
++  it('renders the label only in the wide column and opens the panel on click', async () => {
++    const query = vi.fn(async () => ok(RESULT))
++    const { rerender } = render(<UsageTrigger wide api={stubApi(query)} t={t} />)
++    expect(screen.getByText(zh['trigger.label'])).toBeTruthy()
++    rerender(<UsageTrigger wide={false} api={stubApi(query)} t={t} />)
++    expect(screen.queryByText(zh['trigger.label'])).toBeNull()
++    fireEvent.click(screen.getByLabelText(zh['trigger.aria']))
++    await flush()
++    expect(query).toHaveBeenCalled()
++    // Closing the modal returns the trigger to its resting state.
++    fireEvent.keyDown(document, { key: 'Escape' })
++    expect(screen.queryByRole('dialog')).toBeNull()
++  })
++})
+diff --git a/packages/client/ui-usage/tsconfig.json b/packages/client/ui-usage/tsconfig.json
+new file mode 100644
+index 0000000..9b34a79
+--- /dev/null
++++ b/packages/client/ui-usage/tsconfig.json
+@@ -0,0 +1,36 @@
++{
++  "extends": "../../../tsconfig.base.client.json",
++  "compilerOptions": {
++    "rootDir": "src",
++    "outDir": "lib/types"
++  },
++  "include": [
++    "src"
++  ],
++  "references": [
++    {
++      "path": "../../../vendor/cordis"
++    },
++    {
++      "path": "../locale"
++    },
++    {
++      "path": "../runtime"
++    },
++    {
++      "path": "../ui-primitives"
++    },
++    {
++      "path": "../ui-sidebar"
++    },
++    {
++      "path": "../ui-slots"
++    },
++    {
++      "path": "../../api/remotes/tsconfig.client.json"
++    },
++    {
++      "path": "../../runtime-diagnostics/invariants"
++    }
++  ]
++}
+diff --git a/packages/client/ui-usage/tsdown.config.ts b/packages/client/ui-usage/tsdown.config.ts
+new file mode 100644
+index 0000000..64c0ecc
+--- /dev/null
++++ b/packages/client/ui-usage/tsdown.config.ts
+@@ -0,0 +1,3 @@
++import { clientBundle } from '../tsdown.client.ts'
++
++export default clientBundle('@deepseek-ai/dsh-client-ui-usage', ['lib/types/index.js', 'lib/types/invariant.js'])
+diff --git a/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts b/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
+index 0cd1f51..37c19b6 100644
+--- a/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
++++ b/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
+@@ -1539,6 +1539,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
+     slotInject: '',
+     declaredBy: 'an entry in \'sidebar\' (client-ui-sidebar), so it exists while that entry is mounted',
+     occupants: [
++      'client-ui-usage UsageTrigger id \'usage\'',
+       'client-ui-cordis CordisPanel id \'cordis-panel\'',
+     ],
+     replaceRisk: 'none',
+diff --git a/packages/host/apiproxy/package.json b/packages/host/apiproxy/package.json
+index ba83efe..0064920 100644
+--- a/packages/host/apiproxy/package.json
++++ b/packages/host/apiproxy/package.json
+@@ -67,6 +67,7 @@
+     "@deepseek-ai/dsh-subagent": "workspace:^",
+     "@deepseek-ai/dsh-jobs": "workspace:^",
+     "@deepseek-ai/dsh-tools": "workspace:^",
++    "@deepseek-ai/dsh-usage-query": "workspace:^",
+     "@deepseek-ai/dsh-user-approval": "workspace:^",
+     "@deepseek-ai/dsh-user-questions": "workspace:^",
+     "@deepseek-ai/dsh-workspace": "workspace:^",
+diff --git a/packages/host/apiproxy/src/api-proxy.ts b/packages/host/apiproxy/src/api-proxy.ts
+index bda9936..5bdd5da 100644
+--- a/packages/host/apiproxy/src/api-proxy.ts
++++ b/packages/host/apiproxy/src/api-proxy.ts
+@@ -89,6 +89,8 @@ import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-a
+ // Side-effect type import: resolves the `approval/request` waterfall and
+ // `ctx.get('approval')` without a value dependency on the seam (optional composition).
+ import type {} from '@deepseek-ai/dsh-user-approval'
++// Type-only: resolves the usageQuery Context declaration for `ctx.get`.
++import type {} from '@deepseek-ai/dsh-usage-query'
+ import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
+ import { imageLimitsProjectionSchema, sessionListMetadataProjectionSchema } from './api/sessions.schema.ts'
+ import { questionResponsePayloadSchema } from './api/questions.schema.ts'
+@@ -3257,6 +3259,32 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
+       },
+     },
+ 
++    usage: {
++      // Read-only cross-session aggregation: never touches an agent or a
++      // prompt, so it needs no session resolution or model routing. The
++      // service is optional — a composition without @deepseek-ai/dsh-usage-query
++      // reports its absence instead of fabricating zeroes.
++      async query(request) {
++        const usageQuery = ctx.get('usageQuery')
++        if (usageQuery === undefined) {
++          return err(request, {
++            code: 'internal',
++            message: 'usage query service is absent: the host composition does not mount @deepseek-ai/dsh-usage-query',
++            details: {},
++          })
++        }
++        try {
++          return ok(request, await usageQuery.query(request.payload))
++        } catch (error: unknown) {
++          return err(request, {
++            code: 'internal',
++            message: `usage query failed: ${String(error)}`,
++            details: {},
++          })
++        }
++      },
++    },
++
+     settings: {
+       describe(request) {
+         const settings = ctx.get('settings')
+diff --git a/packages/host/apiproxy/src/api/index.ts b/packages/host/apiproxy/src/api/index.ts
+index b5e1d1f..4e4a64b 100644
+--- a/packages/host/apiproxy/src/api/index.ts
++++ b/packages/host/apiproxy/src/api/index.ts
+@@ -16,6 +16,7 @@ import type { SettingsApi } from './settings.ts'
+ import type { CredentialsApi } from './credentials.ts'
+ import type { LlmApi } from './llm.ts'
+ import type { DownloadsApi } from './downloads.ts'
++import type { UsageApi } from './usage.ts'
+ import type { ClientResponse, RpcReceipt } from './rpc.ts'
+ 
+ /** Root interface of the unified API. New client-request domain = one new file pair + one field here + one map row. */
+@@ -31,6 +32,7 @@ export interface ApiProxy {
+   settings: SettingsApi
+   credentials: CredentialsApi
+   llm: LlmApi
++  usage: UsageApi
+   /** Host-only download surfaces (GET, no wire envelope); absent from IApiClient. */
+   downloads: DownloadsApi
+   /**
+@@ -61,6 +63,7 @@ export type { GoalsApi, GoalId, GoalRef } from './goals.ts'
+ export type { SettingsApi, SettingsNamespaceView, SettingsPathOpView, SettingsSecretView } from './settings.ts'
+ export type { CredentialsApi, CredentialView } from './credentials.ts'
+ export type { ConfigurableProviderView, DiscoveredModelView, LlmApi } from './llm.ts'
++export type { UsageApi, UsageDimension, UsageQueryResult, UsageRow, UsageTokenTotals } from './usage.ts'
+ export type { DownloadsApi } from './downloads.ts'
+ export type { ApprovalResponsePayload } from './approvals.ts'
+ 
+diff --git a/packages/host/apiproxy/src/api/rpc-map.ts b/packages/host/apiproxy/src/api/rpc-map.ts
+index 80dede1..9e376a7 100644
+--- a/packages/host/apiproxy/src/api/rpc-map.ts
++++ b/packages/host/apiproxy/src/api/rpc-map.ts
+@@ -14,6 +14,7 @@ import type { SettingsApi } from './settings.ts'
+ import type { CredentialsApi } from './credentials.ts'
+ import type { LlmApi } from './llm.ts'
+ import type { SubagentsApi } from './subagents.ts'
++import type { UsageApi } from './usage.ts'
+ import type { RpcResponse } from './rpc.ts'
+ 
+ /**
+@@ -74,6 +75,7 @@ export interface RpcMethodMap {
+   'llm.providers': LlmApi['providers']
+   'llm.models': LlmApi['models']
+   'llm.discoverModels': LlmApi['discoverModels']
++  'usage.query': UsageApi['query']
+ }
+ 
+ /** Business request payload of method K (reaches through the RpcRequest narrow form to payload). */
+diff --git a/packages/host/apiproxy/src/api/usage.schema.ts b/packages/host/apiproxy/src/api/usage.schema.ts
+new file mode 100644
+index 0000000..3923eda
+--- /dev/null
++++ b/packages/host/apiproxy/src/api/usage.schema.ts
+@@ -0,0 +1,46 @@
++/**
++ * usage domain zod schemas. Read-only shapes: the request carries the day
++ * window and grouping, and the value is the aggregated rows plus grand total.
++ */
++
++import { z } from 'zod'
++import type { Wire } from './rpc.schema.ts'
++import type { RequestPayload, ResponseValue } from './index.ts'
++
++/** usage.query groupBy dimension. */
++export const usageDimensionSchema = z.enum(['day', 'model', 'session'])
++
++/** usage.query day-bound literal. */
++export const usageDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD')
++
++/** usage.query request payload. */
++export const usageQueryRequestSchema = z.object({
++  from: usageDateSchema.optional(),
++  to: usageDateSchema.optional(),
++  asOf: z.number().int().positive().optional(),
++  groupBy: z.array(usageDimensionSchema).min(1),
++}) as unknown as z.ZodType<Wire<RequestPayload<'usage.query'>>>
++
++/** usage.query token-bucket totals. */
++export const usageTokenTotalsSchema = z.object({
++  inputTokens: z.number().int().nonnegative(),
++  outputTokens: z.number().int().nonnegative(),
++  cacheReadTokens: z.number().int().nonnegative(),
++  cacheWriteTokens: z.number().int().nonnegative(),
++  reasoningTokens: z.number().int().nonnegative(),
++  totalTokens: z.number().int().nonnegative(),
++})
++
++/** usage.query result row (dimension fields present only when grouped). */
++export const usageRowSchema = usageTokenTotalsSchema.extend({
++  day: z.string().optional(),
++  model: z.string().optional(),
++  sessionId: z.string().optional(),
++  requests: z.number().int().nonnegative(),
++})
++
++/** usage.query response value. */
++export const usageQueryValueSchema = z.object({
++  rows: z.array(usageRowSchema),
++  total: usageTokenTotalsSchema,
++}) as unknown as z.ZodType<Wire<ResponseValue<'usage.query'>>>
+diff --git a/packages/host/apiproxy/src/api/usage.ts b/packages/host/apiproxy/src/api/usage.ts
+new file mode 100644
+index 0000000..f7908a4
+--- /dev/null
++++ b/packages/host/apiproxy/src/api/usage.ts
+@@ -0,0 +1,73 @@
++/**
++ * usage domain contract: read-only cross-session token-usage aggregation.
++ * Method signatures are the source of truth: unary methods take the
++ * RpcRequest<P> narrow form and the impl echoes rpcId.
++ *
++ * The domain has no session argument: the aggregation spans the whole logical
++ * corpus, and the day window is the machine's local calendar. View shapes are
++ * defined here (browser-safe, zero host imports) and mirror the
++ * `@deepseek-ai/dsh-usage-query` service vocabulary.
++ */
++
++import type { RpcRequest, RpcResponse } from './rpc.ts'
++
++/** A grouping dimension: one optional column of every result row. */
++export type UsageDimension = 'day' | 'model' | 'session'
++
++/** Summed token buckets for one group. */
++export interface UsageTokenTotals {
++  /** Uncached input tokens. */
++  inputTokens: number
++  /** Output tokens. */
++  outputTokens: number
++  /** Cache-read tokens. */
++  cacheReadTokens: number
++  /** Cache-write tokens. */
++  cacheWriteTokens: number
++  /** Reasoning output tokens (already inside `outputTokens`; reported separately). */
++  reasoningTokens: number
++  /** Disjoint sum of all four buckets. */
++  totalTokens: number
++}
++
++/** One aggregated group: exactly the requested dimensions plus sums. */
++export interface UsageRow extends UsageTokenTotals {
++  /** Local `YYYY-MM-DD` of the samples; present iff `day` is grouped. */
++  readonly day?: string
++  /** `provider/model` of the samples; present iff `model` is grouped. */
++  readonly model?: string
++  /** Owning session id; present iff `session` is grouped. */
++  readonly sessionId?: string
++  /** Number of usage samples (provider-reported calls) in the group. */
++  readonly requests: number
++}
++
++/** Aggregated rows (sorted deterministically) plus the grand total. */
++export interface UsageQueryResult {
++  /** One row per distinct group, sorted by the grouped dimensions. */
++  readonly rows: readonly UsageRow[]
++  /** Grand total across every row. */
++  readonly total: UsageTokenTotals
++}
++
++/**
++ * Usage-domain unary methods. `query` is read-only: it never creates or
++ * resumes an agent, never touches prompts, and never sends provider requests.
++ */
++export interface UsageApi {
++  /** Aggregate provider-reported token usage across the logical corpus. */
++  query(request: RpcRequest<{
++    /** Inclusive lower bound as a local `YYYY-MM-DD` date; absent = no bound. */
++    from?: string
++    /** Inclusive upper bound as a local `YYYY-MM-DD` date; absent = no bound. */
++    to?: string
++    /**
++     * Epoch-ms cutoff: only samples at or before this instant count. The
++     * panel captures it when it opens, freezing the view against usage
++     * produced afterwards.
++     */
++    asOf?: number
++    /** Non-empty, duplicate-free grouping dimension subset. */
++    groupBy: readonly UsageDimension[]
++  }>): Promise<RpcResponse<UsageQueryResult>>
++}
+diff --git a/packages/host/apiproxy/src/fetch/client.ts b/packages/host/apiproxy/src/fetch/client.ts
+index 70e3ece..8fea47a 100644
+--- a/packages/host/apiproxy/src/fetch/client.ts
++++ b/packages/host/apiproxy/src/fetch/client.ts
+@@ -41,6 +41,7 @@ import {
+   workspaceRenameValueSchema,
+ } from '../api/workspace.schema.ts'
+ import { skillListValueSchema } from '../api/skills.schema.ts'
++import { usageQueryValueSchema } from '../api/usage.schema.ts'
+ import {
+   agentPresetCopyValueSchema, agentPresetListValueSchema, agentPresetOpenDocumentValueSchema,
+   agentPresetReadValueSchema, agentPresetRemoveValueSchema, agentPresetSelectValueSchema,
+@@ -161,6 +162,9 @@ export interface IApiClient {
+     models(payload: RequestPayload<'llm.models'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.models'>>>
+     discoverModels(payload: RequestPayload<'llm.discoverModels'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'llm.discoverModels'>>>
+   }
++  usage: {
++    query(payload: RequestPayload<'usage.query'>, signal?: AbortSignal): Promise<RpcResponse<ResponseValue<'usage.query'>>>
++  }
+   /** client-response passthrough (rpcId is a backfill of the server-request's id — never minted here). */
+   respond(message: ClientResponse, signal?: AbortSignal): Promise<RpcReceipt>
+ }
+@@ -222,6 +226,7 @@ const UNARY_VALUE_SCHEMAS: { [K in keyof RpcMethodMap]: z.ZodType<Wire<ResponseV
+   'llm.providers': llmProvidersValueSchema,
+   'llm.models': llmModelsValueSchema,
+   'llm.discoverModels': llmDiscoverModelsValueSchema,
++  'usage.query': usageQueryValueSchema,
+ }
+ 
+ /** Default timeout for bounded unary calls (rpc-compare 2026-07-19: a hung host must not leave callers pending forever). */
+@@ -500,6 +505,10 @@ export abstract class AbstractApiClient implements IApiClient {
+     discoverModels: (payload, signal) => this.callUnary('llm.discoverModels', payload, signal),
+   }
+ 
++  readonly usage: IApiClient['usage'] = {
++    query: (payload, signal) => this.callUnary('usage.query', payload, signal),
++  }
++
+   readonly events: IApiClient['events'] = {
+     mux: (payload, signal, onOpen) => this.openMux(payload, signal, onOpen),
+     host: (payload, signal, onOpen) => this.openHost(payload, signal, onOpen),
+diff --git a/packages/host/apiproxy/src/fetch/handler.ts b/packages/host/apiproxy/src/fetch/handler.ts
+index 697171e..18deb54 100644
+--- a/packages/host/apiproxy/src/fetch/handler.ts
++++ b/packages/host/apiproxy/src/fetch/handler.ts
+@@ -44,6 +44,7 @@ import {
+   workspaceRenameRequestSchema,
+ } from '../api/workspace.schema.ts'
+ import { skillListRequestSchema } from '../api/skills.schema.ts'
++import { usageQueryRequestSchema } from '../api/usage.schema.ts'
+ import {
+   agentPresetCopyRequestSchema, agentPresetListRequestSchema, agentPresetOpenDocumentRequestSchema,
+   agentPresetReadRequestSchema, agentPresetRemoveRequestSchema, agentPresetSelectRequestSchema,
+@@ -140,6 +141,7 @@ const UNARY_ROUTES: UnaryRoutes = {
+   'llm.providers': { schema: llmProvidersRequestSchema, invoke: (api, r) => api.llm.providers(r) },
+   'llm.models': { schema: llmModelsRequestSchema, invoke: (api, r) => api.llm.models(r) },
+   'llm.discoverModels': { schema: llmDiscoverModelsRequestSchema, invoke: (api, r, signal) => api.llm.discoverModels(r, signal) },
++  'usage.query': { schema: usageQueryRequestSchema, invoke: (api, r) => api.usage.query(r) },
+ }
+ 
+ /** Route lookup that narrows an arbitrary path segment to a map key (single cast point for the string→key refinement). */
+diff --git a/packages/host/apiproxy/src/index.ts b/packages/host/apiproxy/src/index.ts
+index ac6c770..915410c 100644
+--- a/packages/host/apiproxy/src/index.ts
++++ b/packages/host/apiproxy/src/index.ts
+@@ -89,6 +89,7 @@ export class ApiProxyService extends Service implements ApiProxy {
+   readonly settings: ApiProxy['settings']
+   readonly credentials: ApiProxy['credentials']
+   readonly llm: ApiProxy['llm']
++  readonly usage: ApiProxy['usage']
+   readonly events: ApiProxy['events']
+   readonly downloads: ApiProxy['downloads']
+   readonly respond: ApiProxy['respond']
+@@ -117,6 +118,7 @@ export class ApiProxyService extends Service implements ApiProxy {
+     this.settings = api.settings
+     this.credentials = api.credentials
+     this.llm = api.llm
++    this.usage = api.usage
+     this.events = api.events
+     this.downloads = api.downloads
+     // createApiProxy returns closures (no `this` capture), so the bind is
+diff --git a/packages/host/apiproxy/tests/client-handler.spec.ts b/packages/host/apiproxy/tests/client-handler.spec.ts
+index 4130d8f..8eb4fc6 100644
+--- a/packages/host/apiproxy/tests/client-handler.spec.ts
++++ b/packages/host/apiproxy/tests/client-handler.spec.ts
+@@ -28,6 +28,7 @@ function scriptedApi(overrides: {
+   settings?: Partial<ApiProxy['settings']>
+   credentials?: Partial<ApiProxy['credentials']>
+   llm?: Partial<ApiProxy['llm']>
++  usage?: Partial<ApiProxy['usage']>
+   respond?: ApiProxy['respond']
+ } = {}): ApiProxy {
+   async function *empty<F>(): AsyncGenerator<RpcRequest<F>> { /* no frames */ }
+@@ -128,6 +129,13 @@ function scriptedApi(overrides: {
+       discoverModels: err,
+       ...overrides.llm,
+     },
++    usage: {
++      query: r => ok(r, {
++        rows: [],
++        total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 },
++      }),
++      ...overrides.usage,
++    },
+     events: { mux: () => empty<MuxFrame>(), host: () => empty<HostFrame>(), ...overrides.events },
+     respond: overrides.respond ?? (() => Promise.resolve({ accepted: false as const, reason: 'not-pending' as const })),
+     downloads: { sessionLog: async () => new Response('stub', { status: 404 }) },
+diff --git a/packages/host/apiproxy/tests/fetch-carrier.spec.ts b/packages/host/apiproxy/tests/fetch-carrier.spec.ts
+index 2000f70..92e86ff 100644
+--- a/packages/host/apiproxy/tests/fetch-carrier.spec.ts
++++ b/packages/host/apiproxy/tests/fetch-carrier.spec.ts
+@@ -282,6 +282,20 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
+         return { rpcId: request.rpcId, result: { ok: true, value: { models: [] } } }
+       },
+     },
++    usage: {
++      async query(request) {
++        return {
++          rpcId: request.rpcId,
++          result: {
++            ok: true,
++            value: {
++              rows: [],
++              total: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 0 },
++            },
++          },
++        }
++      },
++    },
+     events: {
+       mux: (_request, signal) => stream(muxFrames, signal),
+       host: (_request, signal) => stream(hostFrames, signal),
+diff --git a/packages/host/apiproxy/tsconfig.json b/packages/host/apiproxy/tsconfig.json
+index 3ed38b3..07e60f0 100644
+--- a/packages/host/apiproxy/tsconfig.json
++++ b/packages/host/apiproxy/tsconfig.json
+@@ -100,6 +100,9 @@
+     },
+     {
+       "path": "../../util/native-command"
++    },
++    {
++      "path": "../../usage/usage-query"
+     }
+   ]
+ }
+diff --git a/packages/usage/usage-query/README.i18n.yaml b/packages/usage/usage-query/README.i18n.yaml
+new file mode 100644
+index 0000000..2507274
+--- /dev/null
++++ b/packages/usage/usage-query/README.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write packages/usage/usage-query/README.md
++README.md: 535f41e24fd66a2b24b510989632f3a8cc9c7efa
++README.zh.md: 08864ea908b8c945b52943e6aa18efb417715e04
+diff --git a/packages/usage/usage-query/README.md b/packages/usage/usage-query/README.md
+new file mode 100644
+index 0000000..535f41e
+--- /dev/null
++++ b/packages/usage/usage-query/README.md
+@@ -0,0 +1,43 @@
++# @deepseek-ai/dsh-usage-query
++
++English | [中文](README.zh.md)
++
++Cross-session token-usage aggregation service (`ctx.usageQuery`): folds provider-reported usage from the logical session corpus and groups it by any combination of day / model / session dimensions. Read-only — the service never creates or resumes an agent, never assembles a prompt, and never sends a provider request.
++
++## Data source
++
++Each `assistant/message` event's final `usage` (or a streaming `assistant/chunk` usage sample) is folded once per `(turn, step)` — the same last-wins rule token-meter's `tokenUsage` projection applies, so a final message usage supersedes the same step's earlier chunk sample instead of double-counting it. A `request/header` event attributes every following sample to its call configuration's `provider/model`; samples without a header carry the `unknown` model label.
++
++Days are the machine's **local calendar days** of the usage events themselves, so a session that spans a midnight boundary contributes to both days. Buckets are disjoint: uncached input, cache read, cache write, and output; reasoning output is reported separately inside the output bucket.
++
++Reads are bounded: session logs are scanned concurrently (bounded at four), sessions created after the requested window are skipped outright, persisted folds are cached against the persistence backend's lightweight log revisions, and persisted sessions are line-scanned from their raw artifacts instead of being replayed event-by-event — a full replay validates and clones every chunk and costs seconds on large sessions, while the three usage-relevant record types (`request/header`, `assistant/message`, usage `assistant/chunk`) are never packed and scan in milliseconds. Live sessions are served from their in-memory snapshot instead: their artifact is appended continuously, and a revision-stable raw read would spin while a writer keeps changing the file.
++
++## Query contract
++
++`ctx.usageQuery.query(request)` takes an inclusive day window (`from`/`to` as local `YYYY-MM-DD`, either absent = unbounded), an optional epoch-ms `asOf` cutoff (only samples at or before that instant count — the web panel captures it when it opens, so usage produced after the open moment stays out of the view until the panel reopens), and a non-empty, duplicate-free `groupBy` subset of `day` / `model` / `session`. The result is one row per distinct group (each row carrying exactly the requested dimensions plus the summed buckets and a `requests` sample count), sorted deterministically by the grouped dimensions, plus the grand total. Malformed requests fail loudly with a descriptive error before the corpus is touched; a composition without `ctx.sessionQuery` fails with a message naming the missing service.
++
++## Configuration
++
++No settings. Any configured key is rejected — the service reads session logs only.
++
++## Composition
++
++```yaml
++- name: '@deepseek-ai/dsh-usage-query'
++```
++
++Requires the `sessionQuery` service (a `dsh-session-query` backend such as `dsh-session-query-sqlite`) and, through it, a persistence backend for historical sessions. The web bundle mounts all three.
++
++## Model Experience
++
++None, as the service folds already-logged session events into a client-facing read model and registers no prompt, message, schema, tool, or model call.
++
++#### KV Cache effect
++
++None; the service neither assembles nor sends provider requests.
++
++## Known Limitations and Deferred Work
++
++- **Raw scans trust the storage format** — the line scanner skips anything it does not recognize (packed rows, deltas, torn tails), so a future format that packs usage records would silently undercount until the scanner learns it; the full `readSession` replay remains the fallback for live sessions and non-raw backends.
++- **Counts are log-scoped** — usage of steps whose messages were later compacted away still counts, matching the whole-log semantics of `tokenUsage`.
++- **Model attribution is last-header-wins** — a usage sample is attributed to the newest `request/header` before it; a session that switches models mid-step attributes the sample to the later header.
+diff --git a/packages/usage/usage-query/README.zh.md b/packages/usage/usage-query/README.zh.md
+new file mode 100644
+index 0000000..08864ea
+--- /dev/null
++++ b/packages/usage/usage-query/README.zh.md
+@@ -0,0 +1,43 @@
++# @deepseek-ai/dsh-usage-query
++
++[English](README.md) | 中文
++
++跨会话 Token 用量聚合服务（`ctx.usageQuery`）：从逻辑会话语料中折叠各提供商上报的用量，并按 天 / 模型 / 会话 维度的任意组合分组。只读服务——不会创建或恢复 agent、不会组装提示词、不会发送任何提供商请求。
++
++## 数据来源
++
++每个 `assistant/message` 事件的最终 `usage`（或流式 `assistant/chunk` 的用量样本）按 `(turn, step)` 各折叠一次——与 token-meter 的 `tokenUsage` 投影采用相同的"后者覆盖"规则，因此最终消息的用量会取代同一步骤中较早的分块样本，而不会重复计数。`request/header` 事件会把其后出现的每个样本归属到其调用配置的 `provider/model`；没有请求头的样本带有 `unknown` 模型标签。
++
++"天"按用量事件本身的**本地日历日**划分，因此跨午夜边界的会话会分别计入两天。各桶互不重叠：非缓存输入、缓存读、缓存写与输出；推理输出作为输出桶的一部分单独上报。
++
++读取是有界的：会话日志并发扫描（上限为 4），创建于请求窗口之后的会话直接跳过，持久化折叠结果按持久化后端的轻量日志修订号缓存，持久化会话从原始制品做行扫描而不是逐事件重放——完整重放会对每个分块做校验与克隆，在大会话上耗时数秒，而本折叠需要的三类用量记录（`request/header`、`assistant/message`、用量 `assistant/chunk`）从不被打包，行扫描只需毫秒。活跃会话改从内存快照读取：其制品被持续追加，修订稳定的原始读取会在写入方不断改文件时空转。
++
++## 查询契约
++
++`ctx.usageQuery.query(request)` 接收一个包含性日期窗口（`from`/`to` 为本地 `YYYY-MM-DD`，任一缺失即无边界）、一个可选的 epoch 毫秒 `asOf` 截止（只统计不晚于该时刻的样本——Web 面板在打开时捕获它，因此打开后新产生的用量在面板重新打开前不会进入视图），以及一个非空、无重复的 `groupBy` 子集（`day` / `model` / `session`）。结果为每个不同分组一行（每行携带恰好请求的维度，外加汇总桶与 `requests` 样本计数），按分组维度确定性排序，并附总计。格式错误的请求会在触碰语料前以描述性错误快速失败；未装配 `ctx.sessionQuery` 的组成会以点名缺失服务的错误失败。
++
++## 配置
++
++无设置项。任何配置键都会被拒绝——本服务只读取会话日志。
++
++## 装配
++
++```yaml
++- name: '@deepseek-ai/dsh-usage-query'
++```
++
++需要 `sessionQuery` 服务（某个 `dsh-session-query` 后端，如 `dsh-session-query-sqlite`），并通过它需要持久化后端以读取历史会话。Web bundle 三者均已装配。
++
++## 模型体验
++
++无：本服务只把已记录的会话事件折叠成面向客户端的只读模型，不注册任何提示词、消息、模式、工具或模型调用。
++
++#### KV 缓存影响
++
++无；本服务既不组装也不发送提供商请求。
++
++## 已知限制与后续工作
++
++- **原始扫描信任存储格式**——行扫描器会跳过任何无法识别的行（打包行、增量块、撕裂尾部），因此未来若把用量记录也打包进新格式，在扫描器学会之前会静默少计；完整的 `readSession` 重放仍是活跃会话与非原始后端的回退路径。
++- **计数以日志为范围**——后来被压缩掉的步骤用量仍然计入，与 `tokenUsage` 的整日志语义一致。
++- **模型归属采用"最近请求头优先"**——用量样本归属于其之前的最近一个 `request/header`；会话在步骤中途切换模型时，样本归属到较新的请求头。
+diff --git a/packages/usage/usage-query/package.json b/packages/usage/usage-query/package.json
+new file mode 100644
+index 0000000..dc07068
+--- /dev/null
++++ b/packages/usage/usage-query/package.json
+@@ -0,0 +1,60 @@
++{
++  "name": "@deepseek-ai/dsh-usage-query",
++  "description": "Cross-session daily token-usage aggregation service (ctx.usageQuery) for the DeepSeek Harness",
++  "version": "0.1.0-rc.5",
++  "publishConfig": {
++    "access": "public"
++  },
++  "repository": {
++    "type": "git",
++    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
++    "directory": "packages/usage/usage-query"
++  },
++  "type": "module",
++  "main": "lib/index.js",
++  "types": "lib/types/index.d.ts",
++  "exports": {
++    ".": {
++      "types": "./lib/types/index.d.ts",
++      "default": "./lib/index.js"
++    },
++    "./invariant": {
++      "types": "./lib/types/invariant.d.ts",
++      "default": "./lib/invariant.js"
++    },
++    "./types": {
++      "types": "./lib/types/types.d.ts",
++      "default": "./lib/types/types.js"
++    },
++    "./fold": {
++      "types": "./lib/types/fold.d.ts",
++      "default": "./lib/types/fold.js"
++    },
++    "./src/*": "./src/*",
++    "./package.json": "./package.json"
++  },
++  "files": [
++    "lib/index.js",
++    "lib/invariant.js",
++    "lib/types/**/*.js",
++    "lib/types/**/*.d.ts"
++  ],
++  "license": "MIT",
++  "peerDependencies": {
++    "@deepseek-ai/dsh-invariants": "workspace:^",
++    "@deepseek-ai/dsh-session": "workspace:^",
++    "@deepseek-ai/dsh-session-persistence": "workspace:^",
++    "@deepseek-ai/dsh-session-query": "workspace:^",
++    "@deepseek-ai/cordis": "workspace:^"
++  },
++  "dependencies": {
++    "@deepseek-ai/schemastery": "workspace:^"
++  },
++  "devDependencies": {
++    "@deepseek-ai/dsh-invariants": "workspace:^",
++    "@deepseek-ai/dsh-session": "workspace:^",
++    "@deepseek-ai/dsh-session-persistence": "workspace:^",
++    "@deepseek-ai/dsh-session-query": "workspace:^",
++    "@deepseek-ai/cordis": "workspace:^"
++  }
++}
+diff --git a/packages/usage/usage-query/src/fold.ts b/packages/usage/usage-query/src/fold.ts
+new file mode 100644
+index 0000000..c6760d4
+--- /dev/null
++++ b/packages/usage/usage-query/src/fold.ts
+@@ -0,0 +1,198 @@
++/**
++ * Pure folds for cross-session token-usage aggregation: extract usage samples
++ * from one session log, attribute them to a day and model, and group them by
++ * the requested dimensions. No context, no I/O — everything here is a function
++ * of its inputs so the service and its tests stay deterministic.
++ */
++
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import type {
++  TaggedSample,
++  TokenTotals,
++  TokenUsageView,
++  UsageDimension,
++  UsageQueryRequest,
++  UsageRow,
++  UsageSample,
++} from './types.ts'
++
++/** Label applied to usage samples whose request header predates the log or is absent. */
++export const UNKNOWN_MODEL = 'unknown'
++
++/**
++ * Local date key `YYYY-MM-DD` for one epoch-ms timestamp (the machine's own day boundary).
++ * @param time - Unix epoch milliseconds.
++ * @returns the local calendar day literal.
++ */
++export function dayKey(time: number): string {
++  const date = new Date(time)
++  const month = String(date.getMonth() + 1).padStart(2, '0')
++  const day = String(date.getDate()).padStart(2, '0')
++  return `${String(date.getFullYear())}-${month}-${day}`
++}
++
++/**
++ * The provider-reported usage sample of one event, with its owning step, if it carries one.
++ * @param event - one session event.
++ * @returns the usage sample with its `(turn, step)`, or `undefined` when the event reports none.
++ */
++export function usageSampleOf(event: SessionEvent): { turn: number; step: number; usage: TokenUsageView } | undefined {
++  if (event.type === 'assistant/message' && event.data.usage !== undefined) {
++    return { turn: event.data.turn, step: event.data.step, usage: event.data.usage }
++  }
++  if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
++    return { turn: event.data.turn, step: event.data.step, usage: event.data.chunk.usage }
++  }
++  return undefined
++}
++
++const zeroTotals = (): TokenTotals => ({
++  inputTokens: 0,
++  outputTokens: 0,
++  cacheReadTokens: 0,
++  cacheWriteTokens: 0,
++  reasoningTokens: 0,
++  totalTokens: 0,
++})
++
++const addTotals = (target: TokenTotals, usage: TokenUsageView): void => {
++  target.inputTokens += usage.inputTokens
++  target.outputTokens += usage.outputTokens
++  target.cacheReadTokens += usage.cacheReadTokens ?? 0
++  target.cacheWriteTokens += usage.cacheWriteTokens ?? 0
++  target.reasoningTokens += usage.reasoningTokens ?? 0
++  target.totalTokens += usage.inputTokens
++    + (usage.cacheReadTokens ?? 0)
++    + (usage.cacheWriteTokens ?? 0)
++    + usage.outputTokens
++}
++
++/**
++ * Fold one complete session log into usage samples. A `request/header` event
++ * attributes every following sample to its call configuration's
++ * `provider/model`; a later usage for the same `(turn, step)` replaces the
++ * earlier one, so a final `assistant/message` usage supersedes the streaming
++ * `assistant/chunk` sample instead of double-counting it (the same last-wins
++ * rule token-meter's `tokenUsage` projection applies).
++ * @param events - one session's contiguous raw events in seq order.
++ * @returns one sample per distinct `(turn, step)` that reported usage.
++ */
++export function foldUsageSamples(events: readonly SessionEvent[]): UsageSample[] {
++  const lastByStep = new Map<string, UsageSample>()
++  let model = UNKNOWN_MODEL
++  for (const event of events) {
++    if (event.type === 'request/header') {
++      const { provider, model: modelId } = event.data.header.config
++      model = `${provider}/${modelId}`
++      continue
++    }
++    const sample = usageSampleOf(event)
++    if (sample === undefined) continue
++    const key = `${sample.turn}:${sample.step}`
++    lastByStep.set(key, {
++      turn: sample.turn,
++      step: sample.step,
++      time: event.time,
++      usage: { ...sample.usage },
++      model,
++    })
++  }
++  return [...lastByStep.values()]
++}
++
++/**
++ * Validate a query request.
++ * @param request - the request under validation.
++ * @returns the failure reason, or `undefined` when the request is valid.
++ */
++export function validateRequest(request: UsageQueryRequest): string | undefined {
++  const DIMENSIONS: readonly UsageDimension[] = ['day', 'model', 'session']
++  if (request.groupBy.length === 0) return 'groupBy must name at least one dimension'
++  const seen = new Set<string>()
++  for (const dimension of request.groupBy) {
++    if (!DIMENSIONS.includes(dimension)) return `unknown dimension "${dimension}"`
++    if (seen.has(dimension)) return `duplicate dimension "${dimension}"`
++    seen.add(dimension)
++  }
++  const DATE = /^\d{4}-\d{2}-\d{2}$/
++  if (request.from !== undefined && !DATE.test(request.from)) return `invalid from date "${request.from}"`
++  if (request.to !== undefined && !DATE.test(request.to)) return `invalid to date "${request.to}"`
++  if (request.from !== undefined && request.to !== undefined && request.from > request.to) {
++    return `from "${request.from}" is after to "${request.to}"`
++  }
++  if (request.asOf !== undefined && (!Number.isSafeInteger(request.asOf) || request.asOf <= 0)) {
++    return `invalid asOf timestamp "${String(request.asOf)}"`
++  }
++  return undefined
++}
++
++/** Whether one sample falls inside the day window (no window = unbounded). */
++const inWindow = (request: UsageQueryRequest, day: string): boolean =>
++  (request.from === undefined || request.from <= day)
++  && (request.to === undefined || day <= request.to)
++
++/** Whether one sample predates the as-of cutoff (absent cutoff = unbounded). */
++const inAsOf = (request: UsageQueryRequest, time: number): boolean =>
++  request.asOf === undefined || time <= request.asOf
++
++/** Row fields for the selected dimensions plus a total-order sort key. */
++function groupKeyOf(
++  request: UsageQueryRequest,
++  sample: TaggedSample,
++): { sortKey: string; parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId'>> } {
++  const parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId'>> = {}
++  const values: string[] = []
++  for (const dimension of request.groupBy) {
++    if (dimension === 'day') {
++      const day = dayKey(sample.time)
++      parts.day = day
++      values.push(day)
++    } else if (dimension === 'model') {
++      parts.model = sample.model
++      values.push(sample.model)
++    } else {
++      parts.sessionId = sample.sessionId
++      values.push(sample.sessionId)
++    }
++  }
++  return { sortKey: values.join('\u0000'), parts }
++}
++
++/** Total order over group sort keys (dimension values in groupBy order). */
++const compareKeys = (left: string, right: string): number => {
++  if (left < right) return -1
++  /* v8 ignore next -- equality is unreachable: distinct groups never share a key */
++  return left > right ? 1 : 0
++}
++
++/**
++ * Aggregate samples into grouped rows plus the grand total, sorted by the grouped dimensions.
++ * @param request - validated day window and grouping dimensions.
++ * @param samples - session-tagged usage samples.
++ * @returns grouped rows (sorted by the grouped dimensions) and the grand total.
++ */
++export function aggregateSamples(
++  request: UsageQueryRequest,
++  samples: readonly TaggedSample[],
++): { rows: UsageRow[]; total: TokenTotals } {
++  const total = zeroTotals()
++  const groups = new Map<string, { sortKey: string; parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId'>>; totals: TokenTotals; requests: number }>()
++  for (const sample of samples) {
++    const day = dayKey(sample.time)
++    if (!inWindow(request, day)) continue
++    if (!inAsOf(request, sample.time)) continue
++    addTotals(total, sample.usage)
++    const { sortKey, parts } = groupKeyOf(request, sample)
++    let group = groups.get(sortKey)
++    if (group === undefined) {
++      group = { sortKey, parts, totals: zeroTotals(), requests: 0 }
++      groups.set(sortKey, group)
++    }
++    group.requests += 1
++    addTotals(group.totals, sample.usage)
++  }
++  const rows = [...groups.values()]
++    .sort((a, b) => compareKeys(a.sortKey, b.sortKey))
++    .map(group => ({ ...group.parts, requests: group.requests, ...group.totals }))
++  return { rows, total }
++}
+diff --git a/packages/usage/usage-query/src/index.ts b/packages/usage/usage-query/src/index.ts
+new file mode 100644
+index 0000000..a7e94b0
+--- /dev/null
++++ b/packages/usage/usage-query/src/index.ts
+@@ -0,0 +1,310 @@
++/**
++ * Cross-session token-usage aggregation service (`ctx.usageQuery`): folds
++ * provider-reported usage from the logical session corpus and groups it by the
++ * requested day / model / session dimensions. Read-only — the service never
++ * creates or resumes an agent, never assembles a prompt, and never sends a
++ * provider request.
++ *
++ * The corpus scan is bounded: reads run with bounded concurrency, sessions
++ * whose creation day is after the requested window are skipped outright, and
++ * persisted folds are cached against the persistence backend's lightweight
++ * log revisions, so repeated queries (panel filter changes) are near-instant
++ * while appends still invalidate the cache.
++ *
++ * Live sessions are folded **incrementally**: the service keeps one
++ * `{ folded, model, byStep }` state per live session and only iterates the
++ * events appended since the last fold. A live log can hold millions of
++ * streaming chunk events (a long conversation), so a full re-fold on every
++ * query would take tens of seconds; incremental folding makes every query
++ * after the first near-instant, even while the conversation streams. The
++ * service also warms up the live corpus in the background at mount so the
++ * first panel open usually finds the folds already built.
++ *
++ * @module @deepseek-ai/dsh-usage-query
++ */
++
++import { Context, Service } from '@deepseek-ai/cordis'
++import z from '@deepseek-ai/schemastery'
++// Type-only: resolves the sessionQuery / sessionPersistence Context
++// declarations for `ctx.get`.
++import type {} from '@deepseek-ai/dsh-session-query'
++import type {} from '@deepseek-ai/dsh-session-persistence'
++import type { SessionId } from '@deepseek-ai/dsh-session'
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
++import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
++import type { TaggedSample, UsageQueryRequest, UsageQueryResult, UsageSample } from './types.ts'
++import { aggregateSamples, dayKey, foldUsageSamples, UNKNOWN_MODEL, usageSampleOf, validateRequest } from './fold.ts'
++import { scanRawUsageEvents } from './raw.ts'
++
++/** No settings are supported; any configured key is a misspelling. */
++export type UsageQueryConfig = Record<string, never>
++
++/** Maximum concurrent session-log reads in one query. */
++const READ_CONCURRENCY = 4
++
++/** Maximum cached per-session folds; beyond it the oldest entries are dropped. */
++const CACHE_LIMIT = 500
++
++/** Incremental live-fold state for one session: events folded so far, the
++ *  model active at the fold tail, and the last-wins usage samples by
++ *  `(turn, step)`. Only the tail is iterated on later queries. */
++interface LiveFoldState {
++  folded: number
++  model: string
++  byStep: Map<string, UsageSample>
++}
++
++declare module '@deepseek-ai/cordis' {
++  interface Context {
++    usageQuery: UsageQuery
++  }
++}
++
++/** Reject stale or misspelled keys before defaults can hide them. */
++function validateConfigKeys(config: UsageQueryConfig): void {
++  for (const key of Object.keys(config)) {
++    throw new Error(`UsageQueryConfig: unknown key "${key}" (no settings are supported)`)
++  }
++}
++
++/**
++ * Map `items` through `fn` with at most `limit` in-flight promises.
++ * @param items - inputs, processed in order.
++ * @param limit - maximum concurrent workers (positive).
++ * @param fn - async mapper.
++ * @returns results in input order.
++ */
++async function mapWithConcurrency<Item, Result>(
++  items: readonly Item[],
++  limit: number,
++  fn: (item: Item) => Promise<Result>,
++): Promise<Result[]> {
++  const results = new Array<Result>(items.length)
++  let next = 0
++  const worker = async (): Promise<void> => {
++    for (;;) {
++      const index = next
++      next += 1
++      if (index >= items.length) return
++      const item = items[index]
++      /* v8 ignore next 2 -- workers stop at items.length, so the element exists */
++      if (item === undefined) return
++      results[index] = await fn(item)
++    }
++  }
++  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
++  return results
++}
++
++/** Cross-session usage aggregation service. */
++export class UsageQuery extends Service {
++  // Schemastery preserves untrusted loader keys on an empty object schema;
++  // the public type excludes settings while validateConfigKeys rejects them.
++  static Config: z<UsageQueryConfig> = z.object({}) as unknown as z<UsageQueryConfig>
++
++  /** Mount after the services the folds depend on. */
++  static inject = ['sessions', 'sessionQuery', 'sessionPersistence']
++
++  /** Revision-keyed per-session folds (`<sessionId>:<revision>` → tagged samples). */
++  private readonly cache = new Map<string, readonly TaggedSample[]>()
++
++  /** Incremental folds for live sessions, keyed by session id. */
++  private readonly liveFolds = new Map<SessionId, LiveFoldState>()
++
++  constructor(ctx: Context, config: UsageQueryConfig = {}) {
++    super(ctx, 'usageQuery')
++    validateConfigKeys(config)
++    // Background warm-up: fold the live corpus once at mount so the first
++    // panel open is usually instant. Best-effort — a failure only means the
++    // first query folds on demand.
++    setImmediate(() => {
++      this.warmUp().catch(() => {})
++    })
++  }
++
++  /** Fold all live sessions once in the background (best-effort). */
++  async warmUp(): Promise<void> {
++    const sessionQuery = this.ctx.get('sessionQuery')
++    const sessions = this.ctx.get('sessions')
++    if (sessionQuery === undefined || sessions === undefined) return
++    try {
++      const records = await sessionQuery.listSessions()
++      for (const record of records) {
++        const live = sessions.get(record.header.id)
++        if (live !== undefined) this.ensureLiveFold(record.header.id, live.events)
++      }
++    } catch { /* warm-up is best-effort; the first query folds on demand */ }
++  }
++
++  /**
++   * Aggregate provider-reported token usage across the logical corpus.
++   *
++   * Live sessions contribute their incremental in-memory folds (only events
++   * appended since the last query are iterated); persisted sessions are read
++   * through the revision-keyed raw-artifact cache. Days are the machine's
++   * local calendar days of the usage events themselves, so a session that
++   * spans a midnight boundary contributes to both days.
++   *
++   * @param request - validated day window and grouping dimensions.
++   * @returns grouped rows (sorted by the grouped dimensions) and the grand total.
++   */
++  async query(request: UsageQueryRequest): Promise<UsageQueryResult> {
++    const failure = validateRequest(request)
++    if (failure !== undefined) throw new Error(`usageQuery: ${failure}`)
++    const sessionQuery = this.ctx.get('sessionQuery')
++    if (sessionQuery === undefined) {
++      throw new Error('usageQuery: the sessionQuery service is not mounted')
++    }
++    const sessions = this.ctx.get('sessions')
++    const records = await sessionQuery.listSessions()
++    // A session cannot hold usage before its own creation, so sessions created
++    // after the requested window's end can never contribute.
++    const to = request.to
++    const targets = to === undefined
++      ? records
++      : records.filter(record => dayKey(new Date(record.header.createdAt).getTime()) <= to)
++    const persistence = this.ctx.get('sessionPersistence')
++    const revisions = persistence === undefined
++      ? undefined
++      : new Map((await persistence.listSnapshots()).map(snapshot => [snapshot.header.id, snapshot.revision] as const))
++    // Persisted-only plans: live sessions bypass the file cache entirely.
++    // Resolve every cache key up front, then read only the misses: eviction
++    // runs after the reads, so trimming can never steal an entry this query
++    // still needs (a read-then-evict interleave would re-read the whole corpus
++    // once the session count exceeds the cache limit).
++    const plans = targets
++      .filter(record => sessions?.get(record.header.id) === undefined)
++      .map((record) => {
++        const revision = revisions?.get(record.header.id)
++        const cacheKey = revision === undefined ? undefined : `${record.header.id}:${revision}`
++        return { record, cacheKey, cached: cacheKey === undefined ? undefined : this.cache.get(cacheKey) }
++      })
++    const misses = plans.filter(plan => plan.cached === undefined)
++    const readResults = await mapWithConcurrency(misses, READ_CONCURRENCY, async ({ record, cacheKey }) => {
++      const folded = await this.foldPersisted(sessionQuery, persistence, record.header.id)
++      if (cacheKey !== undefined) this.cache.set(cacheKey, folded)
++      return folded
++    })
++    while (this.cache.size > CACHE_LIMIT) {
++      const oldest = this.cache.keys().next().value
++      /* v8 ignore next 2 -- a cache larger than the limit always has a first key */
++      if (oldest === undefined) break
++      this.cache.delete(oldest)
++    }
++    const perSession: TaggedSample[][] = []
++    let readIndex = 0
++    for (const plan of plans) {
++      if (plan.cached !== undefined) {
++        perSession.push([...plan.cached])
++      } else {
++        const result = readResults[readIndex]
++        readIndex += 1
++        /* v8 ignore next 2 -- every miss produced exactly one result in order */
++        if (result === undefined) throw new Error('usageQuery: internal miss/result mismatch')
++        perSession.push(result)
++      }
++    }
++    for (const record of targets) {
++      const live = sessions?.get(record.header.id)
++      if (live !== undefined) perSession.push(this.liveSamples(record.header.id, live.events))
++    }
++    return aggregateSamples(request, perSession.flat())
++  }
++
++  /**
++   * Fold the events appended to a live session since its last fold, then
++   * return the accumulated last-wins samples tagged with the session id.
++   * The event array is an append-only reference snapshot, so index-based
++   * tail iteration is stable across folds.
++   * @param sessionId - the live session.
++   * @param events - the session's current event snapshot.
++   * @returns session-tagged usage samples.
++   */
++  private liveSamples(sessionId: SessionId, events: readonly SessionEvent[]): TaggedSample[] {
++    const state = this.ensureLiveFold(sessionId, events)
++    const samples: TaggedSample[] = new Array(state.byStep.size)
++    let index = 0
++    for (const sample of state.byStep.values()) {
++      samples[index] = { ...sample, sessionId }
++      index += 1
++    }
++    return samples
++  }
++
++  /**
++   * Fold one live session's tail incrementally, keeping the accumulated
++   * last-wins samples and the model active at the fold tail in state.
++   * @param sessionId - the live session.
++   * @param events - the session's current event snapshot.
++   * @returns the session's fold state (up to date).
++   */
++  private ensureLiveFold(sessionId: SessionId, events: readonly SessionEvent[]): LiveFoldState {
++    let state = this.liveFolds.get(sessionId)
++    if (state !== undefined && state.folded >= events.length) return state
++    if (state === undefined) {
++      state = { folded: 0, model: UNKNOWN_MODEL, byStep: new Map() }
++      this.liveFolds.set(sessionId, state)
++    }
++    for (let index = state.folded; index < events.length; index += 1) {
++      const event = events[index]
++      if (event === undefined) break
++      if (event.type === 'request/header') {
++        const { provider, model: modelId } = event.data.header.config
++        state.model = `${provider}/${modelId}`
++        continue
++      }
++      const sample = usageSampleOf(event)
++      if (sample === undefined) continue
++      state.byStep.set(`${sample.turn}:${sample.step}`, {
++        turn: sample.turn,
++        step: sample.step,
++        time: event.time,
++        usage: { ...sample.usage },
++        model: state.model,
++      })
++    }
++    state.folded = events.length
++    while (this.liveFolds.size > CACHE_LIMIT) {
++      const oldest = this.liveFolds.keys().next().value
++      /* v8 ignore next 2 -- a fold map larger than the limit always has a first key */
++      if (oldest === undefined) break
++      this.liveFolds.delete(oldest)
++    }
++    return state
++  }
++
++  /**
++   * Fold one persisted session's usage, preferring the cheapest correct
++   * source:
++   *
++   * - **Persisted sessions** are line-scanned from their raw artifact — the
++   *   three usage-relevant record types (`request/header`,
++   *   `assistant/message`, usage `assistant/chunk`) are never packed, so the
++   *   scan costs milliseconds where a full replay validates and clones every
++   *   chunk.
++   * - Anything else falls back to the `sessionQuery` read.
++   * @param sessionQuery - the mounted query engine.
++   * @param persistence - the optional mounted persistence backend.
++   * @param sessionId - the session to fold.
++   * @returns session-tagged usage samples.
++   */
++  private async foldPersisted(
++    sessionQuery: SessionQueryEngine,
++    persistence: SessionPersistence | undefined,
++    sessionId: SessionId,
++  ): Promise<TaggedSample[]> {
++    if (persistence?.supportsRawArtifacts === true) {
++      const raw = await persistence.readRaw(sessionId)
++      if (raw !== undefined) {
++        return foldUsageSamples(scanRawUsageEvents(raw.content)).map(sample => ({ ...sample, sessionId }))
++      }
++    }
++    const log = await sessionQuery.readSession(sessionId)
++    return foldUsageSamples(log.events).map(sample => ({ ...sample, sessionId }))
++  }
++}
++
++export type * from './types.ts'
++
++export default UsageQuery
+diff --git a/packages/usage/usage-query/src/invariant.ts b/packages/usage/usage-query/src/invariant.ts
+new file mode 100644
+index 0000000..c63fe77
+--- /dev/null
++++ b/packages/usage/usage-query/src/invariant.ts
+@@ -0,0 +1,32 @@
++/**
++ * Package-owned invariant companion for `@deepseek-ai/dsh-usage-query`.
++ * @module @deepseek-ai/dsh-usage-query/invariant
++ */
++
++/* jscpd:ignore-start */
++import type { Context } from '@deepseek-ai/cordis'
++import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
++
++const PACKAGE_NAME = '@deepseek-ai/dsh-usage-query'
++
++/** Cordis companion plugin name. */
++export const name = 'usage-query-invariant'
++/** Service required before the companion can reserve package ownership. */
++export const inject = ['invariants']
++
++/**
++ * No runtime invariant: the service is a read-only fold over detached session
++ * logs, and every output is a pure function of the requested window and the
++ * corpus observation at call time — there is no owned mutable state whose
++ * relationships could drift from the event streams it consumes.
++ */
++const install: InvariantInstaller = () => {}
++
++/**
++ * Register this package's invariant companion.
++ * @param ctx - Cordis context carrying the invariant service.
++ * @returns the installed registration's disposer after setup succeeds.
++ */
++export const apply = (ctx: Context): Promise<() => void> =>
++  Promise.resolve(ctx.invariants.register(PACKAGE_NAME, install))
++/* jscpd:ignore-end */
+diff --git a/packages/usage/usage-query/src/raw.ts b/packages/usage/usage-query/src/raw.ts
+new file mode 100644
+index 0000000..070f534
+--- /dev/null
++++ b/packages/usage/usage-query/src/raw.ts
+@@ -0,0 +1,91 @@
++/**
++ * Lightweight raw-artifact scanner: extracts only the usage-relevant events
++ * from one session log's decoded text. The durable format packs delta-chunk
++ * runs into single rows, so a full event-by-event replay (validation plus
++ * cloning of every chunk) costs seconds on large sessions while the events
++ * this fold needs — `request/header`, `assistant/message`, and usage
++ * `assistant/chunk` records — are never packed and can be line-scanned in
++ * milliseconds. A torn or unparseable tail line is skipped, never fatal.
++ */
++
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import type { TokenUsageView } from './types.ts'
++
++/**
++ * Parse one raw JSONL record into a minimal usage-relevant event.
++ *
++ * The fast prefilter narrows each branch before any JSON.parse: header
++ * records, assistant messages, and usage chunks (whose serialized chunk is
++ * `{"type":"usage",...}` — delta chunks carry `"type":"text-delta"` and are
++ * never parsed). Records that parse but lack the required payload (a message
++ * without usage, a header without a resolvable call configuration) are
++ * skipped; a torn or non-JSON tail line throws and is skipped.
++ * @param line - one decoded artifact line.
++ * @returns the minimal event, or `undefined` when the line carries no usage
++ * data (packed rows, deltas, other event types, or an unparseable tail).
++ */
++function parseRawEvent(line: string): SessionEvent | undefined {
++  try {
++    if (line.includes('"request/header"')) {
++      const record = JSON.parse(line) as {
++        time: number
++        data?: { header?: { config?: { provider?: string; model?: string } } }
++      }
++      const config = record.data?.header?.config
++      if (config?.provider === undefined || config.model === undefined) return undefined
++      return {
++        type: 'request/header',
++        time: record.time,
++        data: { header: { config: { provider: config.provider, model: config.model } }, reason: 'scan' },
++      } as SessionEvent
++    }
++    if (line.includes('"assistant/message"')) {
++      const record = JSON.parse(line) as {
++        time: number
++        data?: { turn: number; step: number; usage?: TokenUsageView }
++      }
++      const data = record.data
++      if (data?.usage === undefined) return undefined
++      return {
++        type: 'assistant/message',
++        time: record.time,
++        data: { turn: data.turn, step: data.step, usage: data.usage },
++      } as SessionEvent
++    }
++    if (line.includes('"assistant/chunk"') && line.includes('"type":"usage"')) {
++      const record = JSON.parse(line) as {
++        time: number
++        data: { turn: number; step: number; chunk: { type: 'usage'; usage: TokenUsageView } }
++      }
++      return {
++        type: 'assistant/chunk',
++        time: record.time,
++        data: {
++          turn: record.data.turn,
++          step: record.data.step,
++          chunk: { type: 'usage', usage: record.data.chunk.usage },
++        },
++      } as SessionEvent
++    }
++    return undefined
++  } catch {
++    // A torn tail or non-JSON line carries no complete usage record.
++    return undefined
++  }
++}
++
++/**
++ * Scan one raw artifact for usage-relevant events in line order.
++ * @param content - the artifact's decoded text (newline-delimited JSONL).
++ * @returns minimal events the fold already consumes (header, usage message,
++ * and usage chunk records only).
++ */
++export function scanRawUsageEvents(content: string): SessionEvent[] {
++  const events: SessionEvent[] = []
++  for (const line of content.split('\n')) {
++    if (!line.includes('"type"')) continue
++    const event = parseRawEvent(line)
++    if (event !== undefined) events.push(event)
++  }
++  return events
++}
+diff --git a/packages/usage/usage-query/src/types.ts b/packages/usage/usage-query/src/types.ts
+new file mode 100644
+index 0000000..c94d301
+--- /dev/null
++++ b/packages/usage/usage-query/src/types.ts
+@@ -0,0 +1,113 @@
++/**
++ * Cross-session token-usage query vocabulary: request, row, and result shapes
++ * shared by the host service, the api-proxy wire contract, and the web panel.
++ *
++ * @module @deepseek-ai/dsh-usage-query
++ */
++
++/** A grouping dimension: one optional column of every result row. */
++export type UsageDimension = 'day' | 'model' | 'session'
++
++/**
++ * Provider-reported token buckets read from session usage events. A
++ * structural mirror of `@deepseek-ai/dsh-llm`'s `TokenUsage`, kept local so
++ * this package never imports the LLM capability for a read-only fold.
++ */
++export interface TokenUsageView {
++  /** Uncached input tokens. */
++  inputTokens: number
++  /** Output tokens (including reasoning output). */
++  outputTokens: number
++  /** Cache-read tokens. */
++  cacheReadTokens?: number
++  /** Cache-write tokens. */
++  cacheWriteTokens?: number
++  /** Reasoning output tokens, already inside `outputTokens`. */
++  reasoningTokens?: number
++}
++
++/** One provider-reported usage sample in the durable log, attributed to a model. */
++export interface UsageSample {
++  /** Turn that carried the usage. */
++  readonly turn: number
++  /** Step that carried the usage. */
++  readonly step: number
++  /** Event timestamp in Unix epoch milliseconds (the usage event's own time). */
++  readonly time: number
++  /** Provider-reported token buckets. */
++  readonly usage: Readonly<TokenUsageView>
++  /** `provider/model` of the newest request header before the sample, or `'unknown'`. */
++  readonly model: string
++}
++
++/** A usage sample tagged with its owning session id for cross-session aggregation. */
++export interface TaggedSample extends UsageSample {
++  /** Session that logged the sample. */
++  readonly sessionId: string
++}
++
++/** Inclusive day-window query over usage samples, grouped by selected dimensions. */
++export interface UsageQueryRequest {
++  /** Inclusive lower bound as a local `YYYY-MM-DD` date; absent = no bound. */
++  from?: string
++  /** Inclusive upper bound as a local `YYYY-MM-DD` date; absent = no bound. */
++  to?: string
++  /**
++   * Epoch-ms cutoff: only samples whose event time is at or before this
++   * instant count. The panel captures it when it opens, so usage produced
++   * after the open moment stays out of the view until the panel reopens.
++   */
++  asOf?: number
++  /**
++   * Grouping dimensions: a non-empty, duplicate-free subset of
++   * `day`/`model`/`session`. A row carries exactly the selected fields.
++   */
++  groupBy: readonly UsageDimension[]
++}
++
++/** Summed token buckets for one group. */
++export interface TokenTotals {
++  /** Uncached input tokens. */
++  inputTokens: number
++  /** Output tokens. */
++  outputTokens: number
++  /** Cache-read tokens. */
++  cacheReadTokens: number
++  /** Cache-write tokens. */
++  cacheWriteTokens: number
++  /** Reasoning output tokens (already inside `outputTokens`; reported separately). */
++  reasoningTokens: number
++  /** Disjoint sum of all four buckets. */
++  totalTokens: number
++}
++
++/** One aggregated group: exactly the requested dimensions plus sums. */
++export interface UsageRow extends TokenTotals {
++  /** Local `YYYY-MM-DD` of the samples; present iff `day` is grouped. */
++  day?: string
++  /** `provider/model` of the samples; present iff `model` is grouped. */
++  model?: string
++  /** Owning session id; present iff `session` is grouped. */
++  sessionId?: string
++  /** Number of usage samples (provider-reported calls) in the group. */
++  requests: number
++}
++
++/** Aggregated rows (sorted deterministically) plus the grand total. */
++export interface UsageQueryResult {
++  /** One row per distinct group, sorted by the grouped dimensions. */
++  readonly rows: readonly UsageRow[]
++  /** Grand total across every row. */
++  readonly total: TokenTotals
++}
++
++/** The `ctx.usageQuery` service contract. */
++export interface UsageQueryService {
++  /**
++   * Aggregate provider-reported token usage across the logical session corpus
++   * for the requested day window and grouping.
++   * @param request - day window and grouping dimensions.
++   * @returns aggregated rows and the grand total.
++   */
++  query(request: UsageQueryRequest): Promise<UsageQueryResult>
++}
+diff --git a/packages/usage/usage-query/tests/raw.spec.ts b/packages/usage/usage-query/tests/raw.spec.ts
+new file mode 100644
+index 0000000..630d21e
+--- /dev/null
++++ b/packages/usage/usage-query/tests/raw.spec.ts
+@@ -0,0 +1,56 @@
++import { describe, expect, it } from 'vitest'
++import { scanRawUsageEvents } from '../src/raw.ts'
++
++const line = (data: Record<string, unknown>): string => JSON.stringify({
++  type: 'assistant/message', seq: 0, time: 1755230400000, data,
++})
++
++describe('scanRawUsageEvents', () => {
++  it('extracts headers, usage messages, and usage chunks in line order', () => {
++    const content = [
++      JSON.stringify({ type: 'request/header', seq: 0, time: 1, data: { header: { config: { provider: 'deepseek', model: 'deepseek-chat' } }, reason: 'turn' } }),
++      line({ turn: 1, step: 1, message: { role: 'assistant' }, usage: { inputTokens: 10, outputTokens: 5 } }),
++      JSON.stringify({ type: 'assistant/chunk', seq: 2, time: 3, data: { index: 0, turn: 2, step: 1, chunk: { type: 'usage', usage: { inputTokens: 7 } } } }),
++    ].join('\n')
++    const events = scanRawUsageEvents(content)
++    expect(events).toHaveLength(3)
++    expect(events[0]).toMatchObject({ type: 'request/header', data: { header: { config: { provider: 'deepseek', model: 'deepseek-chat' } } } })
++    expect(events[1]).toMatchObject({ type: 'assistant/message', time: 1755230400000, data: { turn: 1, step: 1, usage: { inputTokens: 10 } } })
++    expect(events[2]).toMatchObject({ type: 'assistant/chunk', data: { turn: 2, step: 1, chunk: { type: 'usage', usage: { inputTokens: 7 } } } })
++  })
++
++  it('skips messages without usage, non-usage chunks, packed rows, and other events', () => {
++    const content = [
++      line({ turn: 1, step: 1, message: { role: 'assistant' } }),
++      '{"type":"assistant/message","seq":5,"time":6}',
++      JSON.stringify({ type: 'assistant/chunk', seq: 1, time: 2, data: { index: 0, turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } } }),
++      JSON.stringify({ type: 'text-chunks', seq: 2, time: 3, data: { index: 0, turn: 1, step: 1, chunks: [] } }),
++      JSON.stringify({ type: 'user/message', seq: 3, time: 4, data: { turn: 1, message: { role: 'user' } } }),
++    ].join('\n')
++    expect(scanRawUsageEvents(content)).toEqual([])
++  })
++
++  it('skips a header without a resolvable call configuration', () => {
++    const content = [
++      JSON.stringify({ type: 'request/header', seq: 0, time: 1, data: { header: {}, reason: 'turn' } }),
++      JSON.stringify({ type: 'request/header', seq: 1, time: 2, data: { header: { config: { provider: 'deepseek' } }, reason: 'turn' } }),
++    ].join('\n')
++    expect(scanRawUsageEvents(content)).toEqual([])
++  })
++
++  it('skips torn and non-JSON tail lines instead of failing', () => {
++    const content = [
++      line({ turn: 1, step: 1, message: { role: 'assistant' }, usage: { inputTokens: 10, outputTokens: 5 } }),
++      '{"type":"assistant/message", "seq": 1, "time": 2, "data": {"turn": 1, "step": 1, "usage": {"inputTokens": 9',
++      'not json at all',
++      '',
++    ].join('\n')
++    const events = scanRawUsageEvents(content)
++    expect(events).toHaveLength(1)
++  })
++
++  it('returns no events for empty content', () => {
++    expect(scanRawUsageEvents('')).toEqual([])
++    expect(scanRawUsageEvents('\n\n')).toEqual([])
++  })
++})
+diff --git a/packages/usage/usage-query/tests/usage-query.spec.ts b/packages/usage/usage-query/tests/usage-query.spec.ts
+new file mode 100644
+index 0000000..f34b3ec
+--- /dev/null
++++ b/packages/usage/usage-query/tests/usage-query.spec.ts
+@@ -0,0 +1,467 @@
++import { describe, expect, it } from 'vitest'
++import { Context } from '@deepseek-ai/cordis'
++import type { SessionEvent } from '@deepseek-ai/dsh-session'
++import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
++import { UsageQuery } from '../src/index.ts'
++import {
++  UNKNOWN_MODEL,
++  aggregateSamples,
++  dayKey,
++  foldUsageSamples,
++  usageSampleOf,
++  validateRequest,
++} from '../src/fold.ts'
++import type { TaggedSample } from '../src/types.ts'
++
++/** Local-noon timestamp: the calendar day is the same in every timezone. */
++const noon = (y: number, m: number, d: number): number => new Date(y, m - 1, d, 12).getTime()
++
++const usage = (over: Partial<Record<'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'reasoningTokens', number>> = {}) => ({
++  inputTokens: 100,
++  outputTokens: 50,
++  ...over,
++})
++
++const message = (seq: number, turn: number, step: number, time: number, u: ReturnType<typeof usage>): SessionEvent => ({
++  type: 'assistant/message',
++  seq,
++  time,
++  data: { turn, step, message: { role: 'assistant', blocks: [{ type: 'text', text: 'ok' }] }, usage: u },
++}) as SessionEvent
++
++const chunk = (seq: number, turn: number, step: number, time: number, u: ReturnType<typeof usage>): SessionEvent => ({
++  type: 'assistant/chunk',
++  seq,
++  time,
++  data: { index: 0, turn, step, chunk: { type: 'usage', usage: u } },
++}) as SessionEvent
++
++const header = (seq: number, provider: string, model: string, time: number): SessionEvent => ({
++  type: 'request/header',
++  seq,
++  time,
++  data: { header: { config: { provider, model } }, reason: 'turn' },
++}) as SessionEvent
++
++const other = (seq: number, time: number): SessionEvent => ({
++  type: 'user/message',
++  seq,
++  time,
++  data: { turn: 1, message: { role: 'user', blocks: [{ type: 'text', text: 'hi' }] } },
++}) as SessionEvent
++
++const tagged = (sessionId: string, sample: ReturnType<typeof foldUsageSamples>[number]): TaggedSample =>
++  ({ ...sample, sessionId })
++
++describe('dayKey', () => {
++  it('formats the local calendar day with zero padding', () => {
++    expect(dayKey(noon(2026, 8, 15))).toBe('2026-08-15')
++    expect(dayKey(noon(2026, 1, 3))).toBe('2026-01-03')
++  })
++
++  it('crosses a year boundary', () => {
++    expect(dayKey(noon(2026, 1, 1))).toBe('2026-01-01')
++    expect(dayKey(noon(2025, 12, 31))).toBe('2025-12-31')
++  })
++})
++
++describe('usageSampleOf', () => {
++  it('reads the final usage of an assistant message', () => {
++    expect(usageSampleOf(message(0, 1, 1, noon(2026, 8, 15), usage()))?.usage).toMatchObject({ inputTokens: 100 })
++  })
++
++  it('reads a streaming usage chunk', () => {
++    expect(usageSampleOf(chunk(0, 1, 1, noon(2026, 8, 15), usage()))?.usage).toMatchObject({ outputTokens: 50 })
++  })
++
++  it('returns undefined for messages without usage and for non-usage chunks', () => {
++    expect(usageSampleOf({ type: 'assistant/message', seq: 0, time: 1, data: { turn: 1, step: 1, message: { role: 'assistant', blocks: [] } } } as SessionEvent)).toBeUndefined()
++    expect(usageSampleOf({ type: 'assistant/chunk', seq: 0, time: 1, data: { index: 0, turn: 1, step: 1, chunk: { type: 'text-delta', index: 0, text: 'x' } } } as SessionEvent)).toBeUndefined()
++  })
++
++  it('returns undefined for events that never carry usage', () => {
++    expect(usageSampleOf(other(0, noon(2026, 8, 15)))).toBeUndefined()
++  })
++})
++
++describe('foldUsageSamples', () => {
++  it('attributes usage to the newest request header', () => {
++    const events = [
++      header(0, 'deepseek', 'deepseek-chat', noon(2026, 8, 15)),
++      message(1, 1, 1, noon(2026, 8, 15), usage()),
++    ]
++    const samples = foldUsageSamples(events)
++    expect(samples).toHaveLength(1)
++    expect(samples[0]).toMatchObject({ turn: 1, step: 1, model: 'deepseek/deepseek-chat' })
++  })
++
++  it('labels headerless usage as unknown', () => {
++    const samples = foldUsageSamples([message(0, 1, 1, noon(2026, 8, 15), usage())])
++    expect(samples[0]!.model).toBe(UNKNOWN_MODEL)
++  })
++
++  it('lets a final message usage replace the same-step streaming sample', () => {
++    const events = [
++      header(0, 'deepseek', 'deepseek-chat', noon(2026, 8, 15)),
++      chunk(1, 1, 1, noon(2026, 8, 15), usage({ inputTokens: 9, outputTokens: 1 })),
++      message(2, 1, 1, noon(2026, 8, 15), usage({ inputTokens: 12, outputTokens: 3 })),
++    ]
++    const samples = foldUsageSamples(events)
++    expect(samples).toHaveLength(1)
++    expect(samples[0]!.usage).toMatchObject({ inputTokens: 12, outputTokens: 3 })
++  })
++
++  it('keeps one sample per distinct step', () => {
++    const events = [
++      header(0, 'deepseek', 'deepseek-chat', noon(2026, 8, 15)),
++      message(1, 1, 1, noon(2026, 8, 15), usage()),
++      message(2, 2, 1, noon(2026, 8, 15), usage({ inputTokens: 7, outputTokens: 2 })),
++    ]
++    const samples = foldUsageSamples(events)
++    expect(samples).toHaveLength(2)
++    expect(samples.map(s => s.step)).toEqual([1, 1])
++    expect(samples[1]!.usage.inputTokens).toBe(7)
++  })
++
++  it('retains a usage chunk when no final message follows', () => {
++    const samples = foldUsageSamples([chunk(0, 1, 1, noon(2026, 8, 15), usage({ inputTokens: 9 }))])
++    expect(samples).toHaveLength(1)
++    expect(samples[0]!.usage.inputTokens).toBe(9)
++  })
++
++  it('keeps the event time of the surviving sample', () => {
++    const time = noon(2026, 8, 15)
++    const samples = foldUsageSamples([message(0, 1, 1, time, usage())])
++    expect(samples[0]!.time).toBe(time)
++  })
++
++  it('skips events that carry no usage', () => {
++    const time = noon(2026, 8, 15)
++    const samples = foldUsageSamples([other(0, time), message(1, 1, 1, time, usage())])
++    expect(samples).toHaveLength(1)
++    expect(foldUsageSamples([other(0, time)])).toEqual([])
++  })
++})
++
++describe('validateRequest', () => {
++  it('rejects an empty groupBy', () => {
++    expect(validateRequest({ groupBy: [] })).toMatch(/at least one/)
++  })
++
++  it('rejects an unknown dimension', () => {
++    expect(validateRequest({ groupBy: ['hour'] as never })).toMatch(/unknown dimension/)
++  })
++
++  it('rejects a duplicate dimension', () => {
++    expect(validateRequest({ groupBy: ['day', 'day'] })).toMatch(/duplicate/)
++  })
++
++  it('rejects malformed dates and inverted windows', () => {
++    expect(validateRequest({ groupBy: ['day'], from: '2026-8-1' })).toMatch(/invalid from/)
++    expect(validateRequest({ groupBy: ['day'], to: 'yesterday' })).toMatch(/invalid to/)
++    expect(validateRequest({ groupBy: ['day'], from: '2026-08-16', to: '2026-08-15' })).toMatch(/after/)
++  })
++
++  it('rejects a malformed as-of cutoff and accepts a valid one', () => {
++    expect(validateRequest({ groupBy: ['day'], asOf: 0 })).toMatch(/invalid asOf/)
++    expect(validateRequest({ groupBy: ['day'], asOf: -5 })).toMatch(/invalid asOf/)
++    expect(validateRequest({ groupBy: ['day'], asOf: 1.5 })).toMatch(/invalid asOf/)
++    expect(validateRequest({ groupBy: ['day'], asOf: noon(2026, 8, 15) })).toBeUndefined()
++  })
++
++  it('accepts a valid request with no dates', () => {
++    expect(validateRequest({ groupBy: ['day', 'model'] })).toBeUndefined()
++  })
++})
++
++describe('aggregateSamples', () => {
++  const a = tagged('s-1', { turn: 1, step: 1, time: noon(2026, 8, 15), usage: usage(), model: 'deepseek/deepseek-chat' })
++  const b = tagged('s-1', { turn: 2, step: 1, time: noon(2026, 8, 14), usage: usage({ inputTokens: 7, cacheReadTokens: 3, reasoningTokens: 2 }), model: 'deepseek/deepseek-reasoner' })
++  const c = tagged('s-2', { turn: 1, step: 1, time: noon(2026, 8, 15), usage: usage({ inputTokens: 1, outputTokens: 1, cacheWriteTokens: 4 }), model: 'deepseek/deepseek-chat' })
++
++  it('groups by day only and sums buckets plus requests', () => {
++    const { rows, total } = aggregateSamples({ groupBy: ['day'] }, [a, b, c])
++    expect(rows).toEqual([
++      { day: '2026-08-14', requests: 1, inputTokens: 7, outputTokens: 50, cacheReadTokens: 3, cacheWriteTokens: 0, reasoningTokens: 2, totalTokens: 60 },
++      { day: '2026-08-15', requests: 2, inputTokens: 101, outputTokens: 51, cacheReadTokens: 0, cacheWriteTokens: 4, reasoningTokens: 0, totalTokens: 156 },
++    ])
++    expect(total).toEqual({
++      inputTokens: 108, outputTokens: 101, cacheReadTokens: 3, cacheWriteTokens: 4,
++      reasoningTokens: 2, totalTokens: 216,
++    })
++  })
++
++  it('groups by model, session, and every combination', () => {
++    const byModel = aggregateSamples({ groupBy: ['model'] }, [a, b, c]).rows
++    expect(byModel.map(r => [r.model, r.requests])).toEqual([
++      ['deepseek/deepseek-chat', 2],
++      ['deepseek/deepseek-reasoner', 1],
++    ])
++    const bySession = aggregateSamples({ groupBy: ['session'] }, [a, b, c]).rows
++    expect(bySession.map(r => [r.sessionId, r.requests])).toEqual([['s-1', 2], ['s-2', 1]])
++    const byDayModel = aggregateSamples({ groupBy: ['day', 'model'] }, [a, b, c]).rows
++    expect(byDayModel).toHaveLength(2)
++    expect(byDayModel[0]).toMatchObject({ day: '2026-08-14', model: 'deepseek/deepseek-reasoner' })
++    expect(byDayModel[1]).toMatchObject({ day: '2026-08-15', model: 'deepseek/deepseek-chat', requests: 2 })
++    const byModelSession = aggregateSamples({ groupBy: ['model', 'session'] }, [a, b, c]).rows
++    expect(byModelSession).toHaveLength(3)
++    expect(byModelSession[0]).toMatchObject({ model: 'deepseek/deepseek-chat', sessionId: 's-1' })
++    const full = aggregateSamples({ groupBy: ['day', 'model', 'session'] }, [a, b, c]).rows
++    expect(full).toHaveLength(3)
++    expect(full[0]).toMatchObject({ day: '2026-08-14', model: 'deepseek/deepseek-reasoner', sessionId: 's-1' })
++  })
++
++  it('applies the inclusive day window before grouping', () => {
++    const { rows, total } = aggregateSamples({ groupBy: ['day'], from: '2026-08-15', to: '2026-08-15' }, [a, b, c])
++    expect(rows.map(r => r.day)).toEqual(['2026-08-15'])
++    expect(total.inputTokens).toBe(101)
++  })
++
++  it('cuts usage after the as-of moment, inclusive at the boundary', () => {
++    const cutoff = noon(2026, 8, 14)
++    const { rows, total } = aggregateSamples({ groupBy: ['day'], asOf: cutoff }, [a, b, c])
++    // a and c sit at 8/15 noon (after the cutoff); b sits exactly on it.
++    expect(rows.map(r => r.day)).toEqual(['2026-08-14'])
++    expect(rows[0]!.requests).toBe(1)
++    expect(total.inputTokens).toBe(7)
++  })
++
++  it('returns no rows and zero totals for an empty corpus', () => {
++    const { rows, total } = aggregateSamples({ groupBy: ['day'] }, [])
++    expect(rows).toEqual([])
++    expect(total.totalTokens).toBe(0)
++  })
++})
++
++describe('UsageQuery service', () => {
++  const logs: Record<string, SessionEvent[]> = {
++    's-1': [
++      header(0, 'deepseek', 'deepseek-chat', noon(2026, 8, 15)),
++      message(1, 1, 1, noon(2026, 8, 15), usage()),
++    ],
++    's-2': [message(0, 1, 1, noon(2026, 8, 14), usage({ inputTokens: 7 }))],
++  }
++
++  const mount = async (
++    records: string[],
++    options: {
++      createdAt?: (id: string) => number
++      snapshotSource?: () => Record<string, string>
++      rawArtifacts?: Record<string, string>
++      rawSupported?: boolean
++      liveSessions?: Record<string, SessionEvent[]>
++      readCalls?: string[]
++    } = {},
++  ): Promise<{ ctx: Context; dispose: () => Promise<void>; reads: string[] }> => {
++    const ctx = new Context()
++    const createdAt = options.createdAt ?? (() => noon(2026, 8, 15))
++    const reads: string[] = []
++    if (options.liveSessions !== undefined) {
++      const liveEvents = options.liveSessions
++      ctx.provide('sessions', {
++        get: (id: string) => (liveEvents[id] === undefined
++          ? undefined
++          : { header: { id }, events: liveEvents[id] }),
++      } as never)
++    }
++    ctx.provide('sessionQuery', {
++      listSessions: async () => records.map(id => ({
++        header: { id, createdAt: createdAt(id) },
++        live: true,
++        persisted: true,
++      })),
++      readSession: async (id: string) => {
++        reads.push(id)
++        options.readCalls?.push(id)
++        return { session: { id }, events: logs[id] ?? [] }
++      },
++    } as unknown as SessionQueryEngine)
++    if (options.snapshotSource !== undefined || options.rawArtifacts !== undefined || options.rawSupported === false) {
++      const source = options.snapshotSource
++      const artifacts = options.rawArtifacts
++      const rawSupported = options.rawSupported ?? true
++      ctx.provide('sessionPersistence', {
++        ...(source === undefined ? {} : { listSnapshots: async () => Object.entries(source())
++          .map(([id, revision]) => ({ header: { id }, revision })) }),
++        supportsRawArtifacts: rawSupported,
++        ...(rawSupported ? {
++          readRaw: async (id: string) => artifacts === undefined || artifacts[id] === undefined
++            ? undefined
++            : { meta: { id }, filename: 'session.jsonl', content: artifacts[id] },
++        } : {}),
++      } as never)
++    }
++    const fiber = await ctx.plugin(UsageQuery)
++    return { ctx, dispose: () => fiber.dispose(), reads }
++  }
++
++  it('aggregates across sessions and merges equal group keys', async () => {
++    const { ctx, dispose } = await mount(['s-1', 's-2'])
++    try {
++      const result = await ctx.usageQuery.query({ groupBy: ['model'] })
++      expect(result.rows).toEqual([
++        {
++          model: 'deepseek/deepseek-chat', requests: 1, inputTokens: 100, outputTokens: 50,
++          cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 150,
++        },
++        {
++          model: UNKNOWN_MODEL, requests: 1, inputTokens: 7, outputTokens: 50,
++          cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, totalTokens: 57,
++        },
++      ])
++      expect(result.total.totalTokens).toBe(207)
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('returns an empty result when no sessions exist', async () => {
++    const { ctx, dispose } = await mount([])
++    try {
++      const result = await ctx.usageQuery.query({ groupBy: ['day', 'model', 'session'] })
++      expect(result.rows).toEqual([])
++      expect(result.total.totalTokens).toBe(0)
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('rejects an invalid request before touching the corpus', async () => {
++    const { ctx, dispose } = await mount(['s-1'])
++    try {
++      await expect(ctx.usageQuery.query({ groupBy: [] })).rejects.toThrow(/at least one/)
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('fails loudly when sessionQuery is not mounted', async () => {
++    const ctx = new Context()
++    const fiber = await ctx.plugin(UsageQuery)
++    try {
++      await expect(ctx.usageQuery.query({ groupBy: ['day'] })).rejects.toThrow(/not mounted/)
++    } finally {
++      await fiber.dispose()
++    }
++  })
++
++  it('rejects unknown configuration keys', () => {
++    expect(() => new UsageQuery(new Context(), { mystery: true } as never)).toThrow(/unknown key/)
++  })
++
++  it('caches persisted folds by revision and re-reads after a revision change', async () => {
++    const reads: string[] = []
++    const snapshots: Record<string, string> = { 's-1': 'rev-1', 's-2': 'rev-1' }
++    const { ctx, dispose } = await mount(['s-1', 's-2'], {
++      snapshotSource: () => snapshots,
++      readCalls: reads,
++    })
++    try {
++      await ctx.usageQuery.query({ groupBy: ['day'] })
++      await ctx.usageQuery.query({ groupBy: ['model'] })
++      expect(reads).toEqual(['s-1', 's-2'])
++      // A revision bump invalidates the cache entry.
++      snapshots['s-1'] = 'rev-2'
++      await ctx.usageQuery.query({ groupBy: ['day'] })
++      expect(reads).toEqual(['s-1', 's-2', 's-1'])
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('skips sessions created after the requested window end', async () => {
++    const reads: string[] = []
++    const { ctx, dispose } = await mount(['s-1', 's-2', 's-3'], {
++      createdAt: id => (id === 's-3' ? noon(2026, 8, 20) : noon(2026, 8, 15)),
++      readCalls: reads,
++    })
++    try {
++      const result = await ctx.usageQuery.query({ groupBy: ['day'], to: '2026-08-15' })
++      expect(reads).toEqual(['s-1', 's-2'])
++      expect(result.total.totalTokens).toBe(207)
++      // Without a window end every session is scanned.
++      await ctx.usageQuery.query({ groupBy: ['day'] })
++      expect(reads).toEqual(['s-1', 's-2', 's-1', 's-2', 's-3'])
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('evicts the oldest cache entry past the limit', async () => {
++    const ids = Array.from({ length: 510 }, (_, i) => `bulk-${i}`)
++    const snapshots = Object.fromEntries(ids.map(id => [id, 'r']))
++    const reads: string[] = []
++    const { ctx, dispose } = await mount(ids, { snapshotSource: () => snapshots, readCalls: reads })
++    try {
++      const result = await ctx.usageQuery.query({ groupBy: ['session'] })
++      expect(result.rows).toEqual([])
++      expect(reads).toHaveLength(510)
++      // The cache stayed bounded at 500 entries, so the 10 evicted sessions
++      // are re-read while the 500 retained ones are served from the cache.
++      await ctx.usageQuery.query({ groupBy: ['session'] })
++      expect(reads).toHaveLength(520)
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('scans raw artifacts for persisted sessions instead of replaying them', async () => {
++    const reads: string[] = []
++    const raw = (turn: number, input: number): string => JSON.stringify({
++      type: 'assistant/message', seq: turn, time: noon(2026, 8, 15),
++      data: { turn, step: 1, message: { role: 'assistant', blocks: [] }, usage: { inputTokens: input, outputTokens: 1 } },
++    })
++    const { ctx, dispose } = await mount(['s-1', 's-2'], {
++      snapshotSource: () => ({ 's-1': 'r', 's-2': 'r' }),
++      rawArtifacts: { 's-1': [raw(1, 100), raw(2, 7)].join('\n') },
++      readCalls: reads,
++    })
++    try {
++      const result = await ctx.usageQuery.query({ groupBy: ['day'] })
++      // s-1 came from the raw artifact; s-2 (no artifact) fell back to readSession.
++      expect(reads).toEqual(['s-2'])
++      expect(result.total.inputTokens).toBe(114)
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('falls back to readSession when the backend does not expose raw artifacts', async () => {
++    const reads: string[] = []
++    const { ctx, dispose } = await mount(['s-1'], {
++      snapshotSource: () => ({ 's-1': 'r' }),
++      rawSupported: false,
++      readCalls: reads,
++    })
++    try {
++      const result = await ctx.usageQuery.query({ groupBy: ['day'] })
++      expect(reads).toEqual(['s-1'])
++      expect(result.total.totalTokens).toBe(150)
++    } finally {
++      await dispose()
++    }
++  })
++
++  it('folds live sessions from their in-memory log without replay or raw reads', async () => {
++    const reads: string[] = []
++    const { ctx, dispose } = await mount(['s-live', 's-2'], {
++      snapshotSource: () => ({ 's-live': 'r', 's-2': 'r' }),
++      rawArtifacts: { 's-live': 'unused' },
++      liveSessions: {
++        's-live': [
++          header(0, 'deepseek', 'deepseek-chat', noon(2026, 8, 15)),
++          message(1, 1, 1, noon(2026, 8, 15), usage({ inputTokens: 42 })),
++        ],
++      },
++      readCalls: reads,
++    })
++    try {
++      const result = await ctx.usageQuery.query({ groupBy: ['day'] })
++      // The live session folded from memory; only the persisted s-2 was read.
++      expect(reads).toEqual(['s-2'])
++      expect(result.total.inputTokens).toBe(49)
++    } finally {
++      await dispose()
++    }
++  })
++})
+diff --git a/packages/usage/usage-query/tsconfig.json b/packages/usage/usage-query/tsconfig.json
+new file mode 100644
+index 0000000..2bce630
+--- /dev/null
++++ b/packages/usage/usage-query/tsconfig.json
+@@ -0,0 +1,33 @@
++{
++  "extends": "../../../tsconfig.base.json",
++  "compilerOptions": {
++    "rootDir": "src",
++    "outDir": "lib/types"
++  },
++  "include": [
++    "src"
++  ],
++  "references": [
++    {
++      "path": "../../../vendor/cosmokit"
++    },
++    {
++      "path": "../../../vendor/cordis"
++    },
++    {
++      "path": "../../../vendor/schemastery"
++    },
++    {
++      "path": "../../core/session"
++    },
++    {
++      "path": "../../session/session-persistence"
++    },
++    {
++      "path": "../../session-query/session-query"
++    },
++    {
++      "path": "../../runtime-diagnostics/invariants"
++    }
++  ]
++}
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index 1490a0f..5aaf42a 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -1360,6 +1360,9 @@ importers:
+       '@deepseek-ai/dsh-client-ui-trajectory':
+         specifier: workspace:^
+         version: link:../../client/ui-trajectory
++      '@deepseek-ai/dsh-client-ui-usage':
++        specifier: workspace:^
++        version: link:../../client/ui-usage
+       '@deepseek-ai/dsh-client-ui-user-questions':
+         specifier: workspace:^
+         version: link:../../client/ui-user-questions
+@@ -1423,6 +1426,9 @@ importers:
+       '@deepseek-ai/dsh-storage-json':
+         specifier: workspace:^
+         version: link:../../storage/storage-json
++      '@deepseek-ai/dsh-usage-query':
++        specifier: workspace:^
++        version: link:../../usage/usage-query
+       '@deepseek-ai/dsh-web-frontend':
+         specifier: workspace:^
+         version: link:../../../apps/web
+@@ -2925,6 +2931,46 @@ importers:
+         specifier: ^18.2.0
+         version: 18.3.1(react@18.3.1)
+ 
++  packages/client/ui-usage:
++    dependencies:
++      react:
++        specifier: ^18.2.0
++        version: 18.3.1
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:^
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-api-remotes':
++        specifier: workspace:^
++        version: link:../../api/remotes
++      '@deepseek-ai/dsh-client-locale':
++        specifier: workspace:^
++        version: link:../locale
++      '@deepseek-ai/dsh-client-runtime':
++        specifier: workspace:^
++        version: link:../runtime
++      '@deepseek-ai/dsh-client-test-runtime':
++        specifier: workspace:^
++        version: link:../../test-support/client-runtime
++      '@deepseek-ai/dsh-client-ui-primitives':
++        specifier: workspace:^
++        version: link:../ui-primitives
++      '@deepseek-ai/dsh-client-ui-sidebar':
++        specifier: workspace:^
++        version: link:../ui-sidebar
++      '@deepseek-ai/dsh-client-ui-slots':
++        specifier: workspace:^
++        version: link:../ui-slots
++      '@deepseek-ai/dsh-invariants':
++        specifier: workspace:^
++        version: link:../../runtime-diagnostics/invariants
++      '@testing-library/react':
++        specifier: ^16.3.2
++        version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
++      '@types/react':
++        specifier: ~18.3.1
++        version: 18.3.31
++
+   packages/client/ui-user-questions:
+     dependencies:
+       '@deepseek-ai/dsh-client-connection':
+@@ -4764,6 +4810,9 @@ importers:
+       '@deepseek-ai/dsh-tools':
+         specifier: workspace:^
+         version: link:../../core/tools
++      '@deepseek-ai/dsh-usage-query':
++        specifier: workspace:^
++        version: link:../../usage/usage-query
+       '@deepseek-ai/dsh-user-approval':
+         specifier: workspace:^
+         version: link:../../interaction/user-approval
+@@ -7893,6 +7942,28 @@ importers:
+         specifier: workspace:^
+         version: link:../../runtime-diagnostics/invariants
+ 
++  packages/usage/usage-query:
++    dependencies:
++      '@deepseek-ai/schemastery':
++        specifier: link:../../../vendor/schemastery
++        version: link:../../../vendor/schemastery
++    devDependencies:
++      '@deepseek-ai/cordis':
++        specifier: workspace:^
++        version: link:../../../vendor/cordis
++      '@deepseek-ai/dsh-invariants':
++        specifier: workspace:^
++        version: link:../../runtime-diagnostics/invariants
++      '@deepseek-ai/dsh-session':
++        specifier: workspace:^
++        version: link:../../core/session
++      '@deepseek-ai/dsh-session-persistence':
++        specifier: workspace:^
++        version: link:../../session/session-persistence
++      '@deepseek-ai/dsh-session-query':
++        specifier: workspace:^
++        version: link:../../session-query/session-query
++
+   packages/util/atomic-write:
+     devDependencies:
+       '@deepseek-ai/cordis':
+@@ -12953,8 +13024,8 @@ packages:
+   mdn-data@2.27.1:
+     resolution: {integrity: sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==}
+ 
+-  media-typer@1.1.0:
+-    resolution: {integrity: sha512-aisnrDP4GNe06UcKFnV5bfMNPBUw4jsLGaWwWfnH3v02GnBuXX2MCVn5RbrWo0j3pczUilYblq7fQ7Nw2t5XKw==}
++  media-typer@1.1.1:
++    resolution: {integrity: sha512-yz3xRaG20c6/BOzvYoDaGtPmGscs7YivItZEEqe6GbwNfHuxu9YNmvnEkMzKldAGY4/80pRcQRZSEnhquk9XuQ==}
+     engines: {node: '>= 0.8'}
+ 
+   merge-descriptors@2.0.0:
+@@ -18266,7 +18337,7 @@ snapshots:
+ 
+   mdn-data@2.27.1: {}
+ 
+-  media-typer@1.1.0: {}
++  media-typer@1.1.1: {}
+ 
+   merge-descriptors@2.0.0: {}
+ 
+@@ -19371,7 +19442,7 @@ snapshots:
+   type-is@2.1.0:
+     dependencies:
+       content-type: 2.0.0
+-      media-typer: 1.1.0
++      media-typer: 1.1.1
+       mime-types: 3.0.2
+ 
+   typebox@1.1.38: {}
+diff --git a/scripts/start-web.ps1 b/scripts/start-web.ps1
+new file mode 100644
+index 0000000..a3db981
+--- /dev/null
++++ b/scripts/start-web.ps1
+@@ -0,0 +1,66 @@
++# Starts dsh web from a built checkout, launches a hidden watchdog that keeps
++# the server alive, waits for the port, and optionally opens the browser.
++[CmdletBinding()]
++param(
++  [int]$Port = 3080,
++  [switch]$OpenBrowser,
++  [switch]$SkipBuild
++)
++
++$ErrorActionPreference = 'Stop'
++$root = Split-Path -Parent $PSScriptRoot
++$url = "http://127.0.0.1:$Port"
++$watchScript = Join-Path $root 'scripts\watch-web.ps1'
++$watchLog = Join-Path $root 'dsh-web.watch.log'
++$watchOutLog = Join-Path $root 'dsh-web.watch.out.log'
++$watchErrLog = Join-Path $root 'dsh-web.watch.err.log'
++$watchPidFile = Join-Path $root 'dsh-web.watch.pid'
++$bin = Join-Path $root 'apps\cli\lib\bin.js'
++$builtIndex = Join-Path $root 'packages\bundle\web-app\node_modules\@deepseek-ai\dsh-web-frontend\dist\index.html'
++
++if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
++  Write-Host "dsh web: already running at $url"
++  if ($OpenBrowser) { Start-Process $url }
++  exit 0
++}
++
++if (-not $SkipBuild -and (-not (Test-Path $bin) -or -not (Test-Path $builtIndex))) {
++  Write-Host 'dsh web: building missing web bundles (pnpm run build)...'
++  Push-Location $root
++  try {
++    & pnpm run build
++    if ($LASTEXITCODE -ne 0) { throw "pnpm run build failed with exit code $LASTEXITCODE" }
++  } finally {
++    Pop-Location
++  }
++}
++
++if (-not (Test-Path $bin)) {
++  throw "Missing built CLI: $bin. Run pnpm run build first or drop -SkipBuild."
++}
++
++Remove-Item -LiteralPath $watchPidFile -Force -ErrorAction SilentlyContinue
++
++$shell = Get-Command powershell.exe -ErrorAction SilentlyContinue
++if (-not $shell) { $shell = Get-Command pwsh -ErrorAction Stop }
++$watchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $watchScript), '-Port', "$Port")
++$watcher = Start-Process -FilePath $shell.Source -ArgumentList $watchArgs -WorkingDirectory $root -RedirectStandardOutput $watchOutLog -RedirectStandardError $watchErrLog -WindowStyle Hidden -PassThru
++Set-Content -LiteralPath $watchPidFile -Value $watcher.Id
++Write-Host "dsh web: watchdog pid $($watcher.Id)"
++
++for ($attempt = 0; $attempt -lt 90; $attempt++) {
++  Start-Sleep -Seconds 1
++  if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
++    Write-Host "dsh web: $url"
++    if ($OpenBrowser) { Start-Process $url }
++    exit 0
++  }
++  if ($watcher.HasExited) {
++    Write-Host "dsh web: watchdog exited with code $($watcher.ExitCode); recent log:"
++    if (Test-Path $watchLog) { Get-Content $watchLog -Tail 40 }
++    exit 1
++  }
++}
++
++Write-Host "dsh web: did not listen on port $Port within 90s; see $watchLog"
++exit 1
+diff --git a/scripts/stop-web.ps1 b/scripts/stop-web.ps1
+new file mode 100644
+index 0000000..8c6ffa7
+--- /dev/null
++++ b/scripts/stop-web.ps1
+@@ -0,0 +1,41 @@
++# Stops the dsh web watchdog and the server it supervises.
++[CmdletBinding()]
++param([int]$Port = 3080)
++
++$ErrorActionPreference = 'Stop'
++$root = Split-Path -Parent $PSScriptRoot
++$watchPidFile = Join-Path $root 'dsh-web.watch.pid'
++$childPidFile = Join-Path $root 'dsh-web.child.pid'
++
++function Stop-PidFile([string]$Path, [string]$Label) {
++  if (-not (Test-Path -LiteralPath $Path)) { return }
++  $pidValue = Get-Content -LiteralPath $Path | Select-Object -First 1
++  if ($pidValue -match '^\d+$') {
++    $proc = Get-Process -Id ([int]$pidValue) -ErrorAction SilentlyContinue
++    if ($proc) {
++      Stop-Process -Id ([int]$pidValue) -Force -ErrorAction SilentlyContinue
++      Write-Host "stopped $Label pid $pidValue"
++    }
++  }
++  Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
++}
++
++# Stop the watchdog first so it cannot restart the child.
++Stop-PidFile $watchPidFile 'watchdog'
++Start-Sleep -Milliseconds 300
++Stop-PidFile $childPidFile 'server'
++
++$listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
++if ($listener) {
++  $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)" -ErrorAction SilentlyContinue
++  if ($owner -and $owner.CommandLine -match 'deepseek-harness|apps[\\/]cli|dsh[\\/]bin') {
++    Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
++    Write-Host "stopped orphaned server pid $($listener.OwningProcess)"
++  }
++}
++
++if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
++  Write-Host "dsh web: port $Port is still in use by another process"
++} else {
++  Write-Host "dsh web: stopped (port $Port)"
++}
+diff --git a/scripts/verify-package-readme-model-experience.ts b/scripts/verify-package-readme-model-experience.ts
+index d38b474..7b5f1e0 100644
+--- a/scripts/verify-package-readme-model-experience.ts
++++ b/scripts/verify-package-readme-model-experience.ts
+@@ -150,6 +150,8 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
+   'packages/typert/generator': { kind: 'none', reason: 'The build-time generator runs outside any agent runtime and touches no model request.' },
+   'packages/jobs/jobs': { kind: 'indirect', reason: 'Producer and controller plugins own all model rendering over the job registry.' },
+   'packages/jobs/jobs-local': { kind: 'indirect', reason: 'The registry backend delegates model rendering to producer plugins and dsh-tool-jobs.' },
++  'packages/usage/usage-query': { kind: 'none', reason: 'The service folds already-logged session events into a client-facing read model and registers nothing model-facing.' },
++  'packages/client/ui-usage': { kind: 'none', reason: 'Browser-side panel calling the read-only usage.query remote; registers nothing model-facing.' },
+   'packages/examples/acp-demo': { kind: 'indirect', reason: 'The app bundle delegates request composition to dsh-agent-spine-demo and dsh-acp.' },
+   'packages/boot/app-boot': { kind: 'indirect', reason: 'Only the loaded plugin tree contributes model context.' },
+   'packages/boot/cmdline': { kind: 'none', reason: 'Resolves the process command line before any session exists; configured rows own every model-visible consequence.' },
+diff --git a/scripts/watch-web.ps1 b/scripts/watch-web.ps1
+new file mode 100644
+index 0000000..20f8568
+--- /dev/null
++++ b/scripts/watch-web.ps1
+@@ -0,0 +1,78 @@
++# Supervises the dsh web server: starts it from the built CLI, restarts it on
++# unexpected exit with backoff, and keeps timestamped logs for each run.
++[CmdletBinding()]
++param(
++  [int]$Port = 3080,
++  [int]$MaxBackoffSeconds = 30,
++  [int]$StableSeconds = 60
++)
++
++$ErrorActionPreference = 'Stop'
++$root = Split-Path -Parent $PSScriptRoot
++$node = (Get-Command node -ErrorAction Stop).Source
++$bin = Join-Path $root 'apps\cli\lib\bin.js'
++$watchLog = Join-Path $root 'dsh-web.watch.log'
++$watchPidFile = Join-Path $root 'dsh-web.watch.pid'
++$childPidFile = Join-Path $root 'dsh-web.child.pid'
++
++function Write-WatchLog([string]$Message) {
++  $line = '{0} {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
++  Add-Content -LiteralPath $watchLog -Value $line
++}
++
++Set-Content -LiteralPath $watchPidFile -Value $PID
++Write-WatchLog "watchdog started (pid $PID, port $Port)"
++
++$backoff = 1
++$lastStartedAt = $null
++
++while ($true) {
++  if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
++    Write-WatchLog "port $Port is already listening; stopping watchdog"
++    Remove-Item -LiteralPath $watchPidFile -Force -ErrorAction SilentlyContinue
++    break
++  }
++
++  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
++  $outLog = Join-Path $root "dsh-web.$stamp.out.log"
++  $errLog = Join-Path $root "dsh-web.$stamp.err.log"
++  $serverArgs = @(('"{0}"' -f $bin), 'web', '--port', "$Port")
++  $server = Start-Process -FilePath $node -ArgumentList $serverArgs -WorkingDirectory $root -RedirectStandardOutput $outLog -RedirectStandardError $errLog -WindowStyle Hidden -PassThru
++  Set-Content -LiteralPath $childPidFile -Value $server.Id
++  $startedAt = Get-Date
++  Write-WatchLog "started server pid $($server.Id), logs dsh-web.$stamp.*.log (backoff $backoff s)"
++
++  $listened = $false
++  while (-not $server.HasExited) {
++    Start-Sleep -Milliseconds 500
++    if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
++      $listened = $true
++      break
++    }
++  }
++
++  if ($listened) {
++    $backoff = 1
++    Write-WatchLog "server pid $($server.Id) is listening on port $Port"
++    while (-not $server.HasExited) {
++      Start-Sleep -Seconds 1
++    }
++    if ((Get-Date) - $startedAt -ge [TimeSpan]::FromSeconds($StableSeconds)) {
++      $backoff = 1
++    }
++  }
++
++  $exitCode = $server.ExitCode
++  Remove-Item -LiteralPath $childPidFile -Force -ErrorAction SilentlyContinue
++  Write-WatchLog "server pid $($server.Id) exited with code $exitCode"
++  if ((Test-Path -LiteralPath $errLog) -and (Get-Item -LiteralPath $errLog).Length -gt 0) {
++    foreach ($line in (Get-Content -LiteralPath $errLog -Tail 15)) {
++      Write-WatchLog "  $line"
++    }
++  }
++
++  if ((Get-Date) - $startedAt -lt [TimeSpan]::FromSeconds($StableSeconds)) {
++    Start-Sleep -Seconds $backoff
++    $backoff = [Math]::Min($backoff * 2, $MaxBackoffSeconds)
++  }
++}
+diff --git a/tsconfig.client.json b/tsconfig.client.json
+index e599f76..5b9aace 100644
+--- a/tsconfig.client.json
++++ b/tsconfig.client.json
+@@ -85,6 +85,7 @@
+     { "path": "./packages/client/ui-settings-plugins" },
+     { "path": "./packages/client/ui-user-questions" },
+     { "path": "./packages/client/ui-trajectory" },
++    { "path": "./packages/client/ui-usage" },
+     { "path": "./packages/session-query/session-log-export" },
+     { "path": "./packages/client/ui-theme" },
+     { "path": "./packages/client/ui-settings" },
+-- 
+2.55.0.windows.3
+

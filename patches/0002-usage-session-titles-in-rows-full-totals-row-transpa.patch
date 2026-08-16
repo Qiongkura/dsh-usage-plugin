@@ -1,0 +1,376 @@
+From 6b4146c703978cfe2ad55a9ea61635c135e6674c Mon Sep 17 00:00:00 2001
+From: Qiongkura <2447402326@qq.com>
+Date: Sun, 16 Aug 2026 01:59:50 +0800
+Subject: [PATCH 2/3] usage: session titles in rows, full totals row,
+ transparent panel, symmetric date inputs
+
+---
+ .../ui-usage/src/client/UsagePanel.module.css | 36 ++++++----
+ .../client/ui-usage/src/client/UsagePanel.tsx | 18 +++--
+ .../host/apiproxy/src/api/usage.schema.ts     |  1 +
+ packages/host/apiproxy/src/api/usage.ts       |  2 +
+ packages/usage/usage-query/src/index.ts       | 70 +++++++++++++++----
+ packages/usage/usage-query/src/raw.ts         | 22 ++++++
+ packages/usage/usage-query/src/types.ts       |  2 +
+ 7 files changed, 121 insertions(+), 30 deletions(-)
+
+diff --git a/packages/client/ui-usage/src/client/UsagePanel.module.css b/packages/client/ui-usage/src/client/UsagePanel.module.css
+index de8900a..5123e38 100644
+--- a/packages/client/ui-usage/src/client/UsagePanel.module.css
++++ b/packages/client/ui-usage/src/client/UsagePanel.module.css
+@@ -18,12 +18,13 @@
+   transform: translate(-50%, -50%);
+   display: flex;
+   flex-direction: column;
+-  gap: 12px;
+-  width: min(760px, calc(100vw - 48px));
+-  max-height: min(680px, calc(100vh - 48px));
++  gap: 10px;
++  width: min(880px, calc(100vw - 48px));
++  max-height: min(700px, calc(100vh - 48px));
+   padding: 16px;
+   border-radius: 12px;
+-  background: var(--dsw-alias-bg-layer-2);
++  /* 透明面板：背景由遮罩（压暗+模糊）承担，壁纸可透出 */
++  background: transparent;
+   box-shadow: var(--dsw-shadow-lv3);
+   color: var(--dsw-alias-label-primary);
+   overflow: auto;
+@@ -95,20 +96,31 @@
+ .range {
+   display: flex;
+   align-items: center;
+-  gap: 6px;
++  gap: 8px;
+ }
+ 
+ .range input {
+   color-scheme: dark;
++  flex: none;
++  width: 132px;
++  box-sizing: border-box;
+   min-height: 26px;
+-  padding: 2px 6px;
+-  border: 1px solid var(--dsw-alias-line-strong);
+-  border-radius: 6px;
++  padding: 2px 8px;
++  /* 透明底 + 灰边框：融入面板，边框保证可见 */
+   background: transparent;
+   color: var(--dsw-alias-label-primary);
++  border: 1px solid var(--dsw-alias-label-tertiary);
++  border-radius: 6px;
+   font-size: 12px;
+ }
+ 
++.range .dash {
++  flex: none;
++  color: var(--dsw-alias-label-tertiary);
++  font-size: 12px;
++  line-height: 20px;
++}
++
+ .note {
+   margin: 0;
+   color: var(--dsw-alias-label-secondary);
+@@ -126,12 +138,12 @@
+ .bars {
+   display: flex;
+   flex-direction: column;
+-  gap: 4px;
++  gap: 2px;
+ }
+ 
+ .barRow {
+   display: grid;
+-  grid-template-columns: 110px minmax(0, 1fr) 72px;
++  grid-template-columns: 210px minmax(0, 1fr) 72px;
+   align-items: center;
+   gap: 8px;
+ }
+@@ -140,13 +152,13 @@
+   overflow: hidden;
+   color: var(--dsw-alias-label-secondary);
+   font-size: 12px;
+-  line-height: 18px;
++  line-height: 16px;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+ 
+ .barTrack {
+-  height: 8px;
++  height: 4px;
+   border-radius: 999px;
+   background: var(--dsw-alias-interactive-bg-hover);
+   overflow: hidden;
+diff --git a/packages/client/ui-usage/src/client/UsagePanel.tsx b/packages/client/ui-usage/src/client/UsagePanel.tsx
+index 13c344d..3b46b8f 100644
+--- a/packages/client/ui-usage/src/client/UsagePanel.tsx
++++ b/packages/client/ui-usage/src/client/UsagePanel.tsx
+@@ -46,12 +46,17 @@ function barsOf(data: UsageQueryResult | undefined, first: UsageDimension | unde
+   if (first === undefined) return []
+   const field = first === 'day' ? 'day' : first === 'model' ? 'model' : 'sessionId'
+   /* v8 ignore next -- every row carries the selected dimension field, so the fallback is unreachable */
+-  return data.rows.map(row => ({ label: row[field] ?? '', value: row.totalTokens }))
++  return data.rows.map(row => ({
++    label: first === 'session' ? (row.sessionTitle ?? row.sessionId ?? '') : (row[field] ?? ''),
++    value: row.totalTokens,
++  }))
+ }
+ 
+ /** Cell text for one dimension field: unknown models translate, absent fields dash. */
+ function cellOf(row: UsageRow, dimension: UsageDimension, t: Translate): string {
+-  const value = dimension === 'day' ? row.day : dimension === 'model' ? row.model : row.sessionId
++  const value = dimension === 'day' ? row.day
++    : dimension === 'model' ? row.model
++      : (row.sessionTitle ?? row.sessionId)
+   /* v8 ignore next -- cellOf runs only for grouped dimensions, whose rows always carry the field */
+   if (value === undefined || value === '') return '—'
+   if (dimension === 'model' && value === 'unknown') return t('model.unknown')
+@@ -160,7 +165,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+           </div>
+           <div className={css.range}>
+             <input type="date" aria-label={t('preset.custom')} value={from} onChange={(e) => { setFrom(e.target.value); setPreset('custom') }} />
+-            <span>–</span>
++            <span className={css.dash} aria-hidden="true">–</span>
+             <input type="date" aria-label={t('preset.custom')} value={to} onChange={(e) => { setTo(e.target.value); setPreset('custom') }} />
+           </div>
+           <div className={css.chips} role="group" aria-label={t('panel.title')}>
+@@ -226,7 +231,12 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+               </tbody>
+               <tfoot>
+                 <tr>
+-                  <th scope="row" colSpan={groupBy.length + 5}>{t('column.total')}</th>
++                  <th scope="row" colSpan={groupBy.length}>{t('column.total')}</th>
++                  <td>{data.total.inputTokens.toLocaleString()}</td>
++                  <td>{data.total.outputTokens.toLocaleString()}</td>
++                  <td>{data.total.cacheReadTokens.toLocaleString()}</td>
++                  <td>{data.total.cacheWriteTokens.toLocaleString()}</td>
++                  <td>{data.total.totalTokens.toLocaleString()}</td>
+                   <td>{totalRequests.toLocaleString()}</td>
+                 </tr>
+               </tfoot>
+diff --git a/packages/host/apiproxy/src/api/usage.schema.ts b/packages/host/apiproxy/src/api/usage.schema.ts
+index 3923eda..c7ee818 100644
+--- a/packages/host/apiproxy/src/api/usage.schema.ts
++++ b/packages/host/apiproxy/src/api/usage.schema.ts
+@@ -36,6 +36,7 @@ export const usageRowSchema = usageTokenTotalsSchema.extend({
+   day: z.string().optional(),
+   model: z.string().optional(),
+   sessionId: z.string().optional(),
++  sessionTitle: z.string().optional(),
+   requests: z.number().int().nonnegative(),
+ })
+ 
+diff --git a/packages/host/apiproxy/src/api/usage.ts b/packages/host/apiproxy/src/api/usage.ts
+index f7908a4..40ef5e3 100644
+--- a/packages/host/apiproxy/src/api/usage.ts
++++ b/packages/host/apiproxy/src/api/usage.ts
+@@ -38,6 +38,8 @@ export interface UsageRow extends UsageTokenTotals {
+   readonly model?: string
+   /** Owning session id; present iff `session` is grouped. */
+   readonly sessionId?: string
++  /** Latest logged title of the owning session, when one exists. */
++  readonly sessionTitle?: string
+   /** Number of usage samples (provider-reported calls) in the group. */
+   readonly requests: number
+ }
+diff --git a/packages/usage/usage-query/src/index.ts b/packages/usage/usage-query/src/index.ts
+index a7e94b0..59b12c7 100644
+--- a/packages/usage/usage-query/src/index.ts
++++ b/packages/usage/usage-query/src/index.ts
+@@ -35,7 +35,7 @@ import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+ import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
+ import type { TaggedSample, UsageQueryRequest, UsageQueryResult, UsageSample } from './types.ts'
+ import { aggregateSamples, dayKey, foldUsageSamples, UNKNOWN_MODEL, usageSampleOf, validateRequest } from './fold.ts'
+-import { scanRawUsageEvents } from './raw.ts'
++import { scanRawSessionTitle, scanRawUsageEvents } from './raw.ts'
+ 
+ /** No settings are supported; any configured key is a misspelling. */
+ export type UsageQueryConfig = Record<string, never>
+@@ -47,14 +47,22 @@ const READ_CONCURRENCY = 4
+ const CACHE_LIMIT = 500
+ 
+ /** Incremental live-fold state for one session: events folded so far, the
+- *  model active at the fold tail, and the last-wins usage samples by
+- *  `(turn, step)`. Only the tail is iterated on later queries. */
++ *  model active at the fold tail, the latest logged title, and the last-wins
++ *  usage samples by `(turn, step)`. Only the tail is iterated on later
++ *  queries. */
+ interface LiveFoldState {
+   folded: number
+   model: string
++  title: string | undefined
+   byStep: Map<string, UsageSample>
+ }
+ 
++/** One persisted session fold: usage samples plus the latest logged title. */
++interface PersistedFold {
++  readonly samples: readonly TaggedSample[]
++  readonly title: string | undefined
++}
++
+ declare module '@deepseek-ai/cordis' {
+   interface Context {
+     usageQuery: UsageQuery
+@@ -106,8 +114,8 @@ export class UsageQuery extends Service {
+   /** Mount after the services the folds depend on. */
+   static inject = ['sessions', 'sessionQuery', 'sessionPersistence']
+ 
+-  /** Revision-keyed per-session folds (`<sessionId>:<revision>` → tagged samples). */
+-  private readonly cache = new Map<string, readonly TaggedSample[]>()
++  /** Revision-keyed per-session folds (`<sessionId>:<revision>` → samples + title). */
++  private readonly cache = new Map<string, PersistedFold>()
+ 
+   /** Incremental folds for live sessions, keyed by session id. */
+   private readonly liveFolds = new Map<SessionId, LiveFoldState>()
+@@ -193,23 +201,38 @@ export class UsageQuery extends Service {
+       this.cache.delete(oldest)
+     }
+     const perSession: TaggedSample[][] = []
++    const titles = new Map<string, string>()
+     let readIndex = 0
+     for (const plan of plans) {
+       if (plan.cached !== undefined) {
+-        perSession.push([...plan.cached])
++        perSession.push([...plan.cached.samples])
++        if (plan.cached.title !== undefined) titles.set(plan.record.header.id, plan.cached.title)
+       } else {
+         const result = readResults[readIndex]
+         readIndex += 1
+         /* v8 ignore next 2 -- every miss produced exactly one result in order */
+         if (result === undefined) throw new Error('usageQuery: internal miss/result mismatch')
+-        perSession.push(result)
++        perSession.push([...result.samples])
++        if (result.title !== undefined) titles.set(plan.record.header.id, result.title)
+       }
+     }
+     for (const record of targets) {
+       const live = sessions?.get(record.header.id)
+-      if (live !== undefined) perSession.push(this.liveSamples(record.header.id, live.events))
++      if (live !== undefined) {
++        perSession.push(this.liveSamples(record.header.id, live.events))
++        const state = this.liveFolds.get(record.header.id)
++        if (state?.title !== undefined) titles.set(record.header.id, state.title)
++      }
+     }
+-    return aggregateSamples(request, perSession.flat())
++    const result = aggregateSamples(request, perSession.flat())
++    if (titles.size > 0) {
++      result.rows = result.rows.map((row) => {
++        if (row.sessionId === undefined) return row
++        const sessionTitle = titles.get(row.sessionId)
++        return sessionTitle === undefined ? row : { ...row, sessionTitle }
++      })
++    }
++    return result
+   }
+ 
+   /**
+@@ -243,7 +266,7 @@ export class UsageQuery extends Service {
+     let state = this.liveFolds.get(sessionId)
+     if (state !== undefined && state.folded >= events.length) return state
+     if (state === undefined) {
+-      state = { folded: 0, model: UNKNOWN_MODEL, byStep: new Map() }
++      state = { folded: 0, model: UNKNOWN_MODEL, title: undefined, byStep: new Map() }
+       this.liveFolds.set(sessionId, state)
+     }
+     for (let index = state.folded; index < events.length; index += 1) {
+@@ -254,6 +277,10 @@ export class UsageQuery extends Service {
+         state.model = `${provider}/${modelId}`
+         continue
+       }
++      if (event.type === 'session/title') {
++        state.title = event.data.title
++        continue
++      }
+       const sample = usageSampleOf(event)
+       if (sample === undefined) continue
+       state.byStep.set(`${sample.turn}:${sample.step}`, {
+@@ -287,21 +314,36 @@ export class UsageQuery extends Service {
+    * @param sessionQuery - the mounted query engine.
+    * @param persistence - the optional mounted persistence backend.
+    * @param sessionId - the session to fold.
+-   * @returns session-tagged usage samples.
++   * @returns session-tagged usage samples plus the latest logged title.
+    */
+   private async foldPersisted(
+     sessionQuery: SessionQueryEngine,
+     persistence: SessionPersistence | undefined,
+     sessionId: SessionId,
+-  ): Promise<TaggedSample[]> {
++  ): Promise<PersistedFold> {
+     if (persistence?.supportsRawArtifacts === true) {
+       const raw = await persistence.readRaw(sessionId)
+       if (raw !== undefined) {
+-        return foldUsageSamples(scanRawUsageEvents(raw.content)).map(sample => ({ ...sample, sessionId }))
++        return {
++          samples: foldUsageSamples(scanRawUsageEvents(raw.content)).map(sample => ({ ...sample, sessionId })),
++          title: scanRawSessionTitle(raw.content),
++        }
+       }
+     }
+     const log = await sessionQuery.readSession(sessionId)
+-    return foldUsageSamples(log.events).map(sample => ({ ...sample, sessionId }))
++    // Latest logged title: scan from the tail (titles are appended sparsely).
++    let title: string | undefined
++    for (let index = log.events.length - 1; index >= 0; index -= 1) {
++      const event = log.events[index]
++      if (event?.type === 'session/title') {
++        title = event.data.title
++        break
++      }
++    }
++    return {
++      samples: foldUsageSamples(log.events).map(sample => ({ ...sample, sessionId })),
++      title,
++    }
+   }
+ }
+ 
+diff --git a/packages/usage/usage-query/src/raw.ts b/packages/usage/usage-query/src/raw.ts
+index 070f534..82a62db 100644
+--- a/packages/usage/usage-query/src/raw.ts
++++ b/packages/usage/usage-query/src/raw.ts
+@@ -89,3 +89,25 @@ export function scanRawUsageEvents(content: string): SessionEvent[] {
+   }
+   return events
+ }
++
++/**
++ * Scan one raw artifact for the latest logged session title. Titles are
++ * `session/title` records that are never packed, so a prefiltered line scan
++ * finds the newest one without replaying the log. A torn or unparseable tail
++ * line is skipped, never fatal.
++ * @param content - the artifact's decoded text (newline-delimited JSONL).
++ * @returns the newest title text, or `undefined` when the log has none.
++ */
++export function scanRawSessionTitle(content: string): string | undefined {
++  let title: string | undefined
++  for (const line of content.split('\n')) {
++    if (!line.includes('"session/title"')) continue
++    try {
++      const record = JSON.parse(line) as { data?: { title?: string } }
++      if (typeof record.data?.title === 'string' && record.data.title.length > 0) {
++        title = record.data.title
++      }
++    } catch { /* torn tail */ }
++  }
++  return title
++}
+diff --git a/packages/usage/usage-query/src/types.ts b/packages/usage/usage-query/src/types.ts
+index c94d301..1bb7ac3 100644
+--- a/packages/usage/usage-query/src/types.ts
++++ b/packages/usage/usage-query/src/types.ts
+@@ -89,6 +89,8 @@ export interface UsageRow extends TokenTotals {
+   model?: string
+   /** Owning session id; present iff `session` is grouped. */
+   sessionId?: string
++  /** Latest logged title of the owning session, when one exists. */
++  sessionTitle?: string
+   /** Number of usage samples (provider-reported calls) in the group. */
+   requests: number
+ }
+-- 
+2.55.0.windows.3
+

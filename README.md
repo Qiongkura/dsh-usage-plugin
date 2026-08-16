@@ -8,7 +8,7 @@ DeepSeek Harness（DSH）的 **Token 用量统计** 插件：侧边栏底部入�
 
 ## 🚀 快速开始（三步）
 
-> 前提：另一台电脑上有 **DSH 源码仓库**（不是只装了桌面应用），且仓库是较新版本。
+> 前提：另一台电脑上有 **DSH 源码仓库**（不是只装了桌面应用）。
 
 ```bat
 :: 第 1 步：下载本插件
@@ -25,18 +25,37 @@ pnpm run start:web
 
 打开网页后，**侧边栏底部**有一个 📊 图标，点开就是用量统计面板。
 
-脚本会自动完成所有事情：检查宿主版本 → 把插件放进 DSH → 禁用官方重复插件 → 注册 → 安装依赖 → 构建。
+脚本会自动完成所有事情：**（必要时）给宿主打 usage 补丁** → 把插件放进 DSH → 禁用官方重复插件 → 注册 → 安装依赖 → 构建。
+
+---
+
+## 🩹 关于 usage 补丁（重要背景）
+
+`usage.query` RPC 端点是本插件的依赖。但官方 deepseek-harness 仓库**目前还没有**这个端点（usage 功能独立开发，尚未合入官方）。因此：
+
+- 如果宿主**已有** `usage.query` 端点 → 脚本跳过补丁
+- 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 3 个补丁（已在官方 master `47f9438` 上验证可干净应用）
+
+> 如果你的 DSH 仓库比基线新很多，补丁可能无法应用——脚本会明确报错，不会破坏你的仓库。
 
 ---
 
 ## ❓ 常见问题
 
-### 1. 脚本报错「宿主 apiproxy 未包含 usage.query 端点」？
+### 1. 脚本报错「补丁无法应用」？
 
-说明你的 DSH 仓库太旧。先更新：
+说明你的 DSH 仓库与补丁基线（官方 master `47f9438`）偏离较大。先确认仓库状态：
 
 ```bat
-git -C D:\deepseek-harness pull
+git -C D:\deepseek-harness log --oneline -1
+git -C D:\deepseek-harness status
+```
+
+如果仓库没有未提交改动，可以重置到基线再装：
+
+```bat
+git -C D:\deepseek-harness fetch origin
+git -C D:\deepseek-harness reset --hard origin/master
 ```
 
 再重新运行 `install-into-dsh.bat`。
@@ -81,6 +100,14 @@ git -C D:\deepseek-harness pull
 ## 🔧 手动安装（不用脚本时）
 
 ```bash
+# 0. 先给宿主打 usage 补丁（如果宿主还没有 usage.query 端点）
+#    检查：grep -r "usage.query" packages/host/apiproxy/src/fetch/handler.ts
+#    没有则（在 DSH 仓库根目录执行）：
+cd D:/deepseek-harness
+git apply ../dsh-usage-plugin/patches/0001-feat-usage-daily-token-usage-panel-with-incremental-.patch
+git apply ../dsh-usage-plugin/patches/0002-usage-session-titles-in-rows-full-totals-row-transpa.patch
+git apply ../dsh-usage-plugin/patches/0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch
+
 # 1. 把插件 clone 进 DSH 仓库
 git clone https://github.com/Qiongkura/dsh-usage-plugin.git \
   D:/deepseek-harness/packages/usage/usage-plugin

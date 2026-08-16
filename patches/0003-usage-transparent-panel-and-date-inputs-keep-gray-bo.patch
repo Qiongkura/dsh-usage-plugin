@@ -1,0 +1,74 @@
+From c5ba4aec2f7451e9bbd9425a9970517a56c58d25 Mon Sep 17 00:00:00 2001
+From: Qiongkura <2447402326@qq.com>
+Date: Sun, 16 Aug 2026 02:28:09 +0800
+Subject: [PATCH 3/3] usage: transparent panel and date inputs, keep gray
+ border
+
+---
+ .../ui-usage/src/client/UsagePanel.module.css | 20 +++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/packages/client/ui-usage/src/client/UsagePanel.module.css b/packages/client/ui-usage/src/client/UsagePanel.module.css
+index 5123e38..139f6c2 100644
+--- a/packages/client/ui-usage/src/client/UsagePanel.module.css
++++ b/packages/client/ui-usage/src/client/UsagePanel.module.css
+@@ -23,8 +23,8 @@
+   max-height: min(700px, calc(100vh - 48px));
+   padding: 16px;
+   border-radius: 12px;
+-  /* 透明面板：背景由遮罩（压暗+模糊）承担，壁纸可透出 */
+-  background: transparent;
++  /* 不透明面板：主题 overlay 背景色，避免内容透出 */
++  background: var(--dsw-alias-bg-overlay);
+   box-shadow: var(--dsw-shadow-lv3);
+   color: var(--dsw-alias-label-primary);
+   overflow: auto;
+@@ -79,9 +79,10 @@
+ .chip {
+   min-height: 24px;
+   padding: 2px 10px;
+-  border: 0;
++  border: 1px solid transparent;
+   border-radius: 999px;
+-  background: var(--dsw-alias-interactive-bg-hover);
++  /* 未选中：透明背景融入面板，仅显示文字 */
++  background: transparent;
+   color: var(--dsw-alias-label-secondary);
+   font-size: 12px;
+   line-height: 18px;
+@@ -89,8 +90,10 @@
+ }
+ 
+ .chip.active {
+-  background: var(--dsw-specific-sidebar-nav-item-active);
++  /* 选中：用边框框起来，背景仍与面板一致，便于一眼区分 */
++  background: transparent;
+   color: var(--dsw-alias-label-primary);
++  border-color: var(--dsw-alias-label-secondary);
+ }
+ 
+ .range {
+@@ -106,8 +109,8 @@
+   box-sizing: border-box;
+   min-height: 26px;
+   padding: 2px 8px;
+-  /* 透明底 + 灰边框：融入面板，边框保证可见 */
+-  background: transparent;
++  /* 输入框底色随面板（不透明） */
++  background: var(--dsw-alias-bg-layer-2);
+   color: var(--dsw-alias-label-primary);
+   border: 1px solid var(--dsw-alias-label-tertiary);
+   border-radius: 6px;
+@@ -167,7 +170,8 @@
+ .barFill {
+   height: 100%;
+   border-radius: 999px;
+-  background: var(--dsw-specific-sidebar-nav-item-active);
++  /* DeepSeek 品牌蓝进度条 */
++  background: var(--dsw-alias-state-business-primary);
+ }
+ 
+ .barValue {
+-- 
+2.55.0.windows.3
+
