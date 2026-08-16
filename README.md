@@ -26,7 +26,7 @@ pnpm run start:web
 
 打开网页后，**侧边栏底部**有一个 📊 图标，点开就是用量统计面板。
 
-脚本会自动完成所有事情：**（必要时）给宿主打 usage 补丁** → 把插件放进 DSH → 把插件加入 dsh-web-app 依赖 → 禁用官方重复插件 → 注册 → `pnpm install` → 构建 host/client。
+脚本会自动完成所有事情：**（必要时）给宿主打 usage 补丁** → 把插件放进 DSH → 把插件加入 dsh-web-app 依赖 → 禁用官方重复插件 → 注册 → `pnpm install` → 构建 host/client。重复运行脚本是安全的（幂等，已完成的步骤会自动跳过）。
 
 > ✅ 完整流程已在干净的官方 master（`47f9438`）上实测通过：补丁应用 → 构建 → 启动 → `usage.query` 返回数据，全部成功。
 
@@ -38,6 +38,17 @@ pnpm run start:web
 
 - 如果宿主**已有** `usage.query` 端点 → 脚本跳过补丁
 - 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 **6 个补丁**（已在官方 master `47f9438` 上验证可干净应用）
+
+6 个补丁各做什么：
+
+| 补丁 | 内容 |
+|---|---|
+| `0001` | 新增 usage 域：宿主 `usage.query` RPC 端点、`dsh-usage-query` 聚合服务、`ui-usage` 面板与入口 |
+| `0002` | 会话行显示中文标题、总计行、面板透明化 |
+| `0003` | 日期输入框样式、未选中 chip 透明 / 选中描边 |
+| `0004` | 修复 usage 面板测试的类型断言 |
+| `0005` | 面板 overlay 层级提升（`z-index: 1000`） |
+| `0006` | 工作区分组维度 + Token 排序 + 面板 overlay 改为 portal 渲染（修复代码块语言标签浮在面板上的问题） |
 
 > 如果你的 DSH 仓库比基线新很多，补丁可能无法应用——脚本会明确报错，不会破坏你的仓库。
 
@@ -79,7 +90,31 @@ git -C D:\deepseek-harness reset --hard origin/master
 
 ### 5. 启动报错「Cannot find package 'dsh-usage-plugin'」？
 
-说明插件没有进入 dsh-web-app 的依赖树（profiles 无法解析）。重新运行 `install-into-dsh.bat`（第 4 步会自动添加依赖并重新 install）。
+说明插件没有进入 dsh-web-app 的依赖树（profiles 无法解析）。重新运行 `install-into-dsh.bat`（脚本会自动添加依赖并重新 `pnpm install`）。
+
+### 6. 如何升级插件？
+
+```bat
+cd dsh-usage-plugin
+git pull
+install-into-dsh.bat D:\deepseek-harness
+```
+
+脚本是幂等的：补丁已应用的会跳过、依赖已添加的会跳过、官方插件已禁用的会跳过。之后重建前端即可：
+
+```bat
+cd D:\deepseek-harness
+pnpm run build:lib:client
+pnpm run build:web
+```
+
+### 7. 如何卸载插件？
+
+1. 编辑 `packages\bundle\web-app\package.json`，删除 `"dsh-usage-plugin": "workspace:*"` 依赖
+2. 编辑 `packages\bundle\web-app\cordis.patch.yml`，删除注册条目 `- id: usage-plugin`，并把 `usage-query` / `ui-usage` 条目上的 `disabled: true` 删除（恢复官方插件）
+3. 删除插件目录 `packages\usage\usage-plugin`
+4. （可选）撤销 usage 补丁：`git -C D:\deepseek-harness checkout -- packages/host/apiproxy packages/usage packages/client/ui-usage`
+5. 重新 `pnpm install` 并构建
 
 ---
 
@@ -176,7 +211,7 @@ pnpm run start:web
 
 | 依赖 | 版本 | 说明 |
 |---|---|---|
-| DeepSeek Harness 源码仓库 | 较新版本（含 usage 域） | 宿主运行时 |
+| DeepSeek Harness 源码仓库 | 官方 master `47f9438` 或更新 | 宿主运行时；若不含 usage 域，安装脚本会自动打补丁 |
 | Node.js | 20+ | |
 | pnpm | 9+ | 构建 |
 
