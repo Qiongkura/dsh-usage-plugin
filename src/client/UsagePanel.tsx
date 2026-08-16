@@ -5,6 +5,7 @@
  * comes from one unary call, refetched when the range or grouping changes.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { UsageApi, UsageDimension, UsageQueryResult, UsageRow } from './usage-api.ts'
 import type { UsageKey } from './locales.ts'
 import css from './UsagePanel.module.css'
@@ -157,7 +158,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
   const max = Math.max(1, ...bars.map(bar => bar.value))
   const totalRequests = data === undefined ? 0 : data.rows.reduce((sum, row) => sum + row.requests, 0)
 
-  return (
+  return createPortal(
     <div className={css.overlay} role="presentation">
       <div className={css.mask} aria-hidden="true" onClick={onClose} />
       <div className={css.panel} role="dialog" aria-modal="true" aria-labelledby={titleId}>
@@ -276,6 +277,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

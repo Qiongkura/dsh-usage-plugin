@@ -1,0 +1,431 @@
+diff --git a/packages/client/ui-usage/src/client/UsagePanel.tsx b/packages/client/ui-usage/src/client/UsagePanel.tsx
+index 3b46b8f..de3a7bf 100644
+--- a/packages/client/ui-usage/src/client/UsagePanel.tsx
++++ b/packages/client/ui-usage/src/client/UsagePanel.tsx
+@@ -5,6 +5,7 @@
+  * comes from one unary call, refetched when the range or grouping changes.
+  */
+ import { useEffect, useMemo, useRef, useState } from 'react'
++import { createPortal } from 'react-dom'
+ import type { IApiClient, UsageDimension, UsageQueryResult, UsageRow } from '@deepseek-ai/dsh-api-remotes/client'
+ import type { UsageKey } from './locales.ts'
+ import css from './UsagePanel.module.css'
+@@ -25,7 +26,12 @@ export interface UsagePanelProps {
+ /** Date-range presets; `custom` means the two date inputs own the range. */
+ export type UsagePreset = 'today' | 'days7' | 'days30' | 'all' | 'custom'
+ 
+-const DIMENSIONS: readonly UsageDimension[] = ['day', 'model', 'session']
++/** Row ordering choices exposed by the panel; `default` = dimension order. */
++export type UsageSortChoice = 'default' | 'tokens-desc' | 'tokens-asc'
++
++const DIMENSIONS: readonly UsageDimension[] = ['day', 'model', 'session', 'workspace']
++
++const SORTS: readonly UsageSortChoice[] = ['default', 'tokens-desc', 'tokens-asc']
+ 
+ /** Local calendar day literal (`YYYY-MM-DD`) at `offsetDays` from today. */
+ export function localDay(offsetDays: number): string {
+@@ -37,17 +43,28 @@ export function localDay(offsetDays: number): string {
+ }
+ 
+ const columnKey = (dimension: UsageDimension): UsageKey =>
+-  dimension === 'day' ? 'column.day' : dimension === 'model' ? 'column.model' : 'column.session'
++  dimension === 'day' ? 'column.day'
++    : dimension === 'model' ? 'column.model'
++      : dimension === 'workspace' ? 'column.workspace'
++        : 'column.session'
++
++/** Short display name for a workspace path: the last path segment only. */
++function workspaceName(path: string): string {
++  const segments = path.split(/[\\/]/).filter(segment => segment.length > 0)
++  return segments.length > 0 ? segments[segments.length - 1]! : path
++}
+ 
+ /** Rows with their first grouped dimension as the bar label. */
+ function barsOf(data: UsageQueryResult | undefined, first: UsageDimension | undefined): { label: string; value: number }[] {
+   if (data === undefined) return []
+   /* v8 ignore next 2 -- the toggle keeps at least one dimension, so `first` is always defined */
+   if (first === undefined) return []
+-  const field = first === 'day' ? 'day' : first === 'model' ? 'model' : 'sessionId'
++  const field = first === 'day' ? 'day' : first === 'model' ? 'model' : first === 'workspace' ? 'workspace' : 'sessionId'
+   /* v8 ignore next -- every row carries the selected dimension field, so the fallback is unreachable */
+   return data.rows.map(row => ({
+-    label: first === 'session' ? (row.sessionTitle ?? row.sessionId ?? '') : (row[field] ?? ''),
++    label: first === 'session' ? (row.sessionTitle ?? row.sessionId ?? '')
++      : first === 'workspace' && row.workspace !== undefined ? workspaceName(row.workspace)
++        : (row[field] ?? ''),
+     value: row.totalTokens,
+   }))
+ }
+@@ -56,7 +73,8 @@ function barsOf(data: UsageQueryResult | undefined, first: UsageDimension | unde
+ function cellOf(row: UsageRow, dimension: UsageDimension, t: Translate): string {
+   const value = dimension === 'day' ? row.day
+     : dimension === 'model' ? row.model
+-      : (row.sessionTitle ?? row.sessionId)
++      : dimension === 'workspace' ? (row.workspace === undefined ? undefined : workspaceName(row.workspace))
++        : (row.sessionTitle ?? row.sessionId)
+   /* v8 ignore next -- cellOf runs only for grouped dimensions, whose rows always carry the field */
+   if (value === undefined || value === '') return '—'
+   if (dimension === 'model' && value === 'unknown') return t('model.unknown')
+@@ -75,6 +93,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+   // opened stays out of this view (a reopen captures a fresh moment).
+   const [asOf] = useState(() => Date.now())
+   const [groupBy, setGroupBy] = useState<readonly UsageDimension[]>(['day', 'model'])
++  const [sortBy, setSortBy] = useState<UsageSortChoice>('default')
+   const [data, setData] = useState<UsageQueryResult | undefined>(undefined)
+   const [error, setError] = useState<string | undefined>(undefined)
+   const [loading, setLoading] = useState(true)
+@@ -107,6 +126,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+       ...(to === '' ? {} : { to }),
+       asOf,
+       groupBy: [...groupBy],
++      ...(sortBy === 'default' ? {} : { sortBy }),
+     }).then((response) => {
+       if (cancelled) return
+       setLoading(false)
+@@ -124,7 +144,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+       setError(reason instanceof Error ? reason.message : String(reason))
+     })
+     return () => { cancelled = true }
+-  }, [api, from, to, groupKey])
++  }, [api, from, to, groupKey, sortBy])
+ 
+   useEffect(() => {
+     const onKeyDown = (e: KeyboardEvent): void => {
+@@ -138,7 +158,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+   const max = Math.max(1, ...bars.map(bar => bar.value))
+   const totalRequests = data === undefined ? 0 : data.rows.reduce((sum, row) => sum + row.requests, 0)
+ 
+-  return (
++  return createPortal(
+     <div className={css.overlay} role="presentation">
+       <div className={css.mask} aria-hidden="true" onClick={onClose} />
+       <div className={css.panel} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+@@ -181,6 +201,19 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+               </button>
+             ))}
+           </div>
++          <div className={css.chips} role="group" aria-label={t('sort.label')}>
++            {SORTS.map(sort => (
++              <button
++                key={sort}
++                type="button"
++                className={sortBy === sort ? `${css.chip} ${css.active}` : css.chip}
++                aria-pressed={sortBy === sort}
++                onClick={() => { setSortBy(sort) }}
++              >
++                {t(`sort.${sort}`)}
++              </button>
++            ))}
++          </div>
+         </div>
+ 
+         {loading && <p className={css.note}>{t('panel.loading')}</p>}
+@@ -244,6 +277,7 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
+           </>
+         )}
+       </div>
+-    </div>
++    </div>,
++    document.body,
+   )
+ }
+diff --git a/packages/client/ui-usage/src/client/locales.ts b/packages/client/ui-usage/src/client/locales.ts
+index caf0694..97d4415 100644
+--- a/packages/client/ui-usage/src/client/locales.ts
++++ b/packages/client/ui-usage/src/client/locales.ts
+@@ -20,9 +20,15 @@ export const zh = {
+   'group.day': '按天',
+   'group.model': '按模型',
+   'group.session': '按会话',
++  'group.workspace': '按工作区',
+   'column.day': '日期',
+   'column.model': '模型',
+   'column.session': '会话',
++  'column.workspace': '工作区',
++  'sort.label': '排序',
++  'sort.default': '默认排序',
++  'sort.tokens-desc': '用量从多到少',
++  'sort.tokens-asc': '用量从少到多',
+   'column.input': '输入',
+   'column.output': '输出',
+   'column.cacheRead': '缓存读',
+@@ -51,9 +57,15 @@ export const en: Record<UsageKey, string> = {
+   'group.day': 'By day',
+   'group.model': 'By model',
+   'group.session': 'By session',
++  'group.workspace': 'By workspace',
+   'column.day': 'Date',
+   'column.model': 'Model',
+   'column.session': 'Session',
++  'column.workspace': 'Workspace',
++  'sort.label': 'Sort',
++  'sort.default': 'Default order',
++  'sort.tokens-desc': 'Most tokens first',
++  'sort.tokens-asc': 'Fewest tokens first',
+   'column.input': 'Input',
+   'column.output': 'Output',
+   'column.cacheRead': 'Cache read',
+diff --git a/packages/host/apiproxy/src/api/usage.schema.ts b/packages/host/apiproxy/src/api/usage.schema.ts
+index c7ee818..4f85da2 100644
+--- a/packages/host/apiproxy/src/api/usage.schema.ts
++++ b/packages/host/apiproxy/src/api/usage.schema.ts
+@@ -8,17 +8,21 @@ import type { Wire } from './rpc.schema.ts'
+ import type { RequestPayload, ResponseValue } from './index.ts'
+ 
+ /** usage.query groupBy dimension. */
+-export const usageDimensionSchema = z.enum(['day', 'model', 'session'])
++export const usageDimensionSchema = z.enum(['day', 'model', 'session', 'workspace'])
+ 
+ /** usage.query day-bound literal. */
+ export const usageDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD')
+ 
++/** usage.query row ordering. */
++export const usageSortSchema = z.enum(['tokens-desc', 'tokens-asc'])
++
+ /** usage.query request payload. */
+ export const usageQueryRequestSchema = z.object({
+   from: usageDateSchema.optional(),
+   to: usageDateSchema.optional(),
+   asOf: z.number().int().positive().optional(),
+   groupBy: z.array(usageDimensionSchema).min(1),
++  sortBy: usageSortSchema.optional(),
+ }) as unknown as z.ZodType<Wire<RequestPayload<'usage.query'>>>
+ 
+ /** usage.query token-bucket totals. */
+@@ -37,6 +41,7 @@ export const usageRowSchema = usageTokenTotalsSchema.extend({
+   model: z.string().optional(),
+   sessionId: z.string().optional(),
+   sessionTitle: z.string().optional(),
++  workspace: z.string().optional(),
+   requests: z.number().int().nonnegative(),
+ })
+ 
+diff --git a/packages/host/apiproxy/src/api/usage.ts b/packages/host/apiproxy/src/api/usage.ts
+index 40ef5e3..9874872 100644
+--- a/packages/host/apiproxy/src/api/usage.ts
++++ b/packages/host/apiproxy/src/api/usage.ts
+@@ -12,7 +12,10 @@
+ import type { RpcRequest, RpcResponse } from './rpc.ts'
+ 
+ /** A grouping dimension: one optional column of every result row. */
+-export type UsageDimension = 'day' | 'model' | 'session'
++export type UsageDimension = 'day' | 'model' | 'session' | 'workspace'
++
++/** Row ordering: default dimension order, or by total tokens descending/ascending. */
++export type UsageSort = 'tokens-desc' | 'tokens-asc'
+ 
+ /** Summed token buckets for one group. */
+ export interface UsageTokenTotals {
+@@ -40,6 +43,8 @@ export interface UsageRow extends UsageTokenTotals {
+   readonly sessionId?: string
+   /** Latest logged title of the owning session, when one exists. */
+   readonly sessionTitle?: string
++  /** Owning workspace path; present iff `workspace` is grouped. */
++  readonly workspace?: string
+   /** Number of usage samples (provider-reported calls) in the group. */
+   readonly requests: number
+ }
+@@ -71,5 +76,7 @@ export interface UsageApi {
+     asOf?: number
+     /** Non-empty, duplicate-free grouping dimension subset. */
+     groupBy: readonly UsageDimension[]
++    /** Row ordering override; absent = deterministic dimension order. */
++    sortBy?: UsageSort
+   }>): Promise<RpcResponse<UsageQueryResult>>
+ }
+diff --git a/packages/usage/usage-query/src/fold.ts b/packages/usage/usage-query/src/fold.ts
+index c6760d4..78deb2d 100644
+--- a/packages/usage/usage-query/src/fold.ts
++++ b/packages/usage/usage-query/src/fold.ts
+@@ -106,7 +106,7 @@ export function foldUsageSamples(events: readonly SessionEvent[]): UsageSample[]
+  * @returns the failure reason, or `undefined` when the request is valid.
+  */
+ export function validateRequest(request: UsageQueryRequest): string | undefined {
+-  const DIMENSIONS: readonly UsageDimension[] = ['day', 'model', 'session']
++  const DIMENSIONS: readonly UsageDimension[] = ['day', 'model', 'session', 'workspace']
+   if (request.groupBy.length === 0) return 'groupBy must name at least one dimension'
+   const seen = new Set<string>()
+   for (const dimension of request.groupBy) {
+@@ -114,6 +114,9 @@ export function validateRequest(request: UsageQueryRequest): string | undefined
+     if (seen.has(dimension)) return `duplicate dimension "${dimension}"`
+     seen.add(dimension)
+   }
++  if (request.sortBy !== undefined && request.sortBy !== 'tokens-desc' && request.sortBy !== 'tokens-asc') {
++    return `unknown sortBy "${request.sortBy}"`
++  }
+   const DATE = /^\d{4}-\d{2}-\d{2}$/
+   if (request.from !== undefined && !DATE.test(request.from)) return `invalid from date "${request.from}"`
+   if (request.to !== undefined && !DATE.test(request.to)) return `invalid to date "${request.to}"`
+@@ -139,8 +142,8 @@ const inAsOf = (request: UsageQueryRequest, time: number): boolean =>
+ function groupKeyOf(
+   request: UsageQueryRequest,
+   sample: TaggedSample,
+-): { sortKey: string; parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId'>> } {
+-  const parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId'>> = {}
++): { sortKey: string; parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId' | 'workspace'>> } {
++  const parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId' | 'workspace'>> = {}
+   const values: string[] = []
+   for (const dimension of request.groupBy) {
+     if (dimension === 'day') {
+@@ -150,6 +153,9 @@ function groupKeyOf(
+     } else if (dimension === 'model') {
+       parts.model = sample.model
+       values.push(sample.model)
++    } else if (dimension === 'workspace') {
++      parts.workspace = sample.workspace ?? ''
++      values.push(sample.workspace ?? '')
+     } else {
+       parts.sessionId = sample.sessionId
+       values.push(sample.sessionId)
+@@ -165,6 +171,14 @@ const compareKeys = (left: string, right: string): number => {
+   return left > right ? 1 : 0
+ }
+ 
++/** Row ordering by total tokens (descending or ascending), then the deterministic key. */
++const compareByTokens = (sortBy: NonNullable<UsageQueryRequest['sortBy']>) =>
++  (left: { sortKey: string; totals: TokenTotals }, right: { sortKey: string; totals: TokenTotals }): number => {
++    const diff = left.totals.totalTokens - right.totals.totalTokens
++    if (diff !== 0) return sortBy === 'tokens-desc' ? -diff : diff
++    return compareKeys(left.sortKey, right.sortKey)
++  }
++
+ /**
+  * Aggregate samples into grouped rows plus the grand total, sorted by the grouped dimensions.
+  * @param request - validated day window and grouping dimensions.
+@@ -176,7 +190,7 @@ export function aggregateSamples(
+   samples: readonly TaggedSample[],
+ ): { rows: UsageRow[]; total: TokenTotals } {
+   const total = zeroTotals()
+-  const groups = new Map<string, { sortKey: string; parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId'>>; totals: TokenTotals; requests: number }>()
++  const groups = new Map<string, { sortKey: string; parts: Partial<Pick<UsageRow, 'day' | 'model' | 'sessionId' | 'workspace'>>; totals: TokenTotals; requests: number }>()
+   for (const sample of samples) {
+     const day = dayKey(sample.time)
+     if (!inWindow(request, day)) continue
+@@ -191,8 +205,8 @@ export function aggregateSamples(
+     group.requests += 1
+     addTotals(group.totals, sample.usage)
+   }
+-  const rows = [...groups.values()]
+-    .sort((a, b) => compareKeys(a.sortKey, b.sortKey))
++  const sorted = [...groups.values()]
++  const rows = (request.sortBy === undefined ? sorted.sort((a, b) => compareKeys(a.sortKey, b.sortKey)) : sorted.sort(compareByTokens(request.sortBy)))
+     .map(group => ({ ...group.parts, requests: group.requests, ...group.totals }))
+   return { rows, total }
+ }
+diff --git a/packages/usage/usage-query/src/index.ts b/packages/usage/usage-query/src/index.ts
+index 59b12c7..f7ddc16 100644
+--- a/packages/usage/usage-query/src/index.ts
++++ b/packages/usage/usage-query/src/index.ts
+@@ -166,6 +166,28 @@ export class UsageQuery extends Service {
+     }
+     const sessions = this.ctx.get('sessions')
+     const records = await sessionQuery.listSessions()
++    // Subagent lineage: a child session's header carries `parentSession`, so
++    // samples logged by subagents are attributed to their root ancestor here.
++    // The session view then folds every descendant's usage into the
++    // conversation that spawned it instead of listing one row per subagent.
++    const parentMap = new Map<string, string>()
++    for (const record of records) {
++      if (record.header.parentSession !== undefined) parentMap.set(record.header.id, record.header.parentSession)
++    }
++    const rootOf = (id: string): string => {
++      const seen = new Set<string>()
++      let node: string | undefined = id
++      let root: string | undefined
++      while (node !== undefined && !seen.has(node)) {
++        seen.add(node)
++        root = node
++        node = parentMap.get(node)
++      }
++      // `node === undefined` means the walk reached a session without a
++      // parent — `root` is that root session. A revisit is a cycle guard;
++      // the last visited node is the best available ancestor either way.
++      return root ?? id
++    }
+     // A session cannot hold usage before its own creation, so sessions created
+     // after the requested window's end can never contribute.
+     const to = request.to
+@@ -202,24 +224,33 @@ export class UsageQuery extends Service {
+     }
+     const perSession: TaggedSample[][] = []
+     const titles = new Map<string, string>()
++    const cwdBySession = new Map<string, string>()
++    for (const record of records) {
++      if (record.header.cwd !== undefined) cwdBySession.set(record.header.id, record.header.cwd)
++    }
++    const tag = (sample: TaggedSample): TaggedSample => {
++      const sessionId = rootOf(sample.sessionId)
++      const workspace = cwdBySession.get(sessionId)
++      return workspace === undefined ? { ...sample, sessionId } : { ...sample, sessionId, workspace }
++    }
+     let readIndex = 0
+     for (const plan of plans) {
+       if (plan.cached !== undefined) {
+-        perSession.push([...plan.cached.samples])
++        perSession.push([...plan.cached.samples].map(tag))
+         if (plan.cached.title !== undefined) titles.set(plan.record.header.id, plan.cached.title)
+       } else {
+         const result = readResults[readIndex]
+         readIndex += 1
+         /* v8 ignore next 2 -- every miss produced exactly one result in order */
+         if (result === undefined) throw new Error('usageQuery: internal miss/result mismatch')
+-        perSession.push([...result.samples])
++        perSession.push([...result.samples].map(tag))
+         if (result.title !== undefined) titles.set(plan.record.header.id, result.title)
+       }
+     }
+     for (const record of targets) {
+       const live = sessions?.get(record.header.id)
+       if (live !== undefined) {
+-        perSession.push(this.liveSamples(record.header.id, live.events))
++        perSession.push(this.liveSamples(record.header.id, live.events).map(tag))
+         const state = this.liveFolds.get(record.header.id)
+         if (state?.title !== undefined) titles.set(record.header.id, state.title)
+       }
+diff --git a/packages/usage/usage-query/src/types.ts b/packages/usage/usage-query/src/types.ts
+index 1bb7ac3..c10f70a 100644
+--- a/packages/usage/usage-query/src/types.ts
++++ b/packages/usage/usage-query/src/types.ts
+@@ -6,7 +6,10 @@
+  */
+ 
+ /** A grouping dimension: one optional column of every result row. */
+-export type UsageDimension = 'day' | 'model' | 'session'
++export type UsageDimension = 'day' | 'model' | 'session' | 'workspace'
++
++/** Row ordering: default dimension order, or by total tokens descending/ascending. */
++export type UsageSort = 'tokens-desc' | 'tokens-asc'
+ 
+ /**
+  * Provider-reported token buckets read from session usage events. A
+@@ -44,6 +47,8 @@ export interface UsageSample {
+ export interface TaggedSample extends UsageSample {
+   /** Session that logged the sample. */
+   readonly sessionId: string
++  /** Owning workspace (cwd of the session), when known. */
++  readonly workspace?: string
+ }
+ 
+ /** Inclusive day-window query over usage samples, grouped by selected dimensions. */
+@@ -60,9 +65,11 @@ export interface UsageQueryRequest {
+   asOf?: number
+   /**
+    * Grouping dimensions: a non-empty, duplicate-free subset of
+-   * `day`/`model`/`session`. A row carries exactly the selected fields.
++   * `day`/`model`/`session`/`workspace`. A row carries exactly the selected fields.
+    */
+   groupBy: readonly UsageDimension[]
++  /** Row ordering override; absent = deterministic dimension order. */
++  sortBy?: UsageSort
+ }
+ 
+ /** Summed token buckets for one group. */
+@@ -91,6 +98,8 @@ export interface UsageRow extends TokenTotals {
+   sessionId?: string
+   /** Latest logged title of the owning session, when one exists. */
+   sessionTitle?: string
++  /** Owning workspace path; present iff `workspace` is grouped. */
++  workspace?: string
+   /** Number of usage samples (provider-reported calls) in the group. */
+   requests: number
+ }

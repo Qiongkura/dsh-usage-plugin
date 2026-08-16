@@ -37,7 +37,7 @@ pnpm run start:web
 `usage.query` RPC 端点是本插件的依赖。但官方 deepseek-harness 仓库**目前还没有**这个端点（usage 功能独立开发，尚未合入官方）。因此：
 
 - 如果宿主**已有** `usage.query` 端点 → 脚本跳过补丁
-- 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 **5 个补丁**（已在官方 master `47f9438` 上验证可干净应用）
+- 如果宿主**没有** → 脚本自动应用 `patches/` 目录里的 **6 个补丁**（已在官方 master `47f9438` 上验证可干净应用）
 
 > 如果你的 DSH 仓库比基线新很多，补丁可能无法应用——脚本会明确报错，不会破坏你的仓库。
 
@@ -116,6 +116,7 @@ git apply --ignore-whitespace ../dsh-usage-plugin/patches/0002-usage-session-tit
 git apply --ignore-whitespace ../dsh-usage-plugin/patches/0003-usage-transparent-panel-and-date-inputs-keep-gray-bo.patch
 git apply --ignore-whitespace ../dsh-usage-plugin/patches/0004-fix-usage-panel-test-types.patch
 git apply --ignore-whitespace ../dsh-usage-plugin/patches/0005-usage-overlay-z-index.patch
+git apply --ignore-whitespace ../dsh-usage-plugin/patches/0006-usage-workspace-sort-portal.patch
 
 # 1. 把插件 clone 进 DSH 仓库
 git clone https://github.com/Qiongkura/dsh-usage-plugin.git \
