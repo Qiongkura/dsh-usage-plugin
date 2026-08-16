@@ -1,21 +1,117 @@
 # dsh-usage-plugin
 
-DeepSeek Harness（DSH）的 **Token 用量统计** 附属插件：侧边栏底部入口 + 模态面板，提供跨会话的 Token 消耗聚合视图。
+DeepSeek Harness（DSH）的 **Token 用量统计** 插件：侧边栏底部入口 + 模态面板，查看所有会话的 Token 消耗。
 
-## 功能特性
+它是 DSH 官方「用量统计」的**增强版**——在官方功能之上新增了**工作区分组**、**按 Token 排序**、**子代理用量合并**。
 
-- **四种分组维度**，可任意组合（至少选一个）：
-  - **日期**：按天聚合
-  - **模型**：按 `provider/model` 聚合
-  - **会话**：按会话聚合（显示会话中文标题；子代理的用量自动归入发起它的根会话）
-  - **工作区**：按会话所在工作区目录聚合（只显示目录名）
-- **三种排序方式**：默认维度排序 / 用量从多到少 / 用量从少到多
-- **时间范围**：今天 / 近 7 天 / 近 30 天 / 全部，或自定义起止日期
-- **统计详情**：条形图（首个分组维度）+ 汇总表（输入、输出、缓存读、缓存写、合计、请求数）+ 总计行
-- **子代理合并**：子代理（subagent）会话的用量沿 `parentSession` 链归并到根会话，面板不再为每个子代理单列一行
-- **只读安全**：聚合服务从不创建/恢复代理、从不构造提示词、从不发起模型请求
+---
 
-## 架构
+## 🚀 快速开始（三步）
+
+> 前提：另一台电脑上有 **DSH 源码仓库**（不是只装了桌面应用），且仓库是较新版本。
+
+```bat
+:: 第 1 步：下载本插件
+git clone https://github.com/Qiongkura/dsh-usage-plugin
+cd dsh-usage-plugin
+
+:: 第 2 步：一键安装（把路径换成你的 DSH 仓库根目录）
+install-into-dsh.bat D:\deepseek-harness
+
+:: 第 3 步：启动 DSH，打开 http://127.0.0.1:3080
+cd D:\deepseek-harness
+pnpm run start:web
+```
+
+打开网页后，**侧边栏底部**有一个 📊 图标，点开就是用量统计面板。
+
+脚本会自动完成所有事情：检查宿主版本 → 把插件放进 DSH → 禁用官方重复插件 → 注册 → 安装依赖 → 构建。
+
+---
+
+## ❓ 常见问题
+
+### 1. 脚本报错「宿主 apiproxy 未包含 usage.query 端点」？
+
+说明你的 DSH 仓库太旧。先更新：
+
+```bat
+git -C D:\deepseek-harness pull
+```
+
+再重新运行 `install-into-dsh.bat`。
+
+### 2. 为什么要禁用官方的 usage-query / ui-usage？
+
+本插件是官方功能的**替代品**，两者注册的是**同一个服务**（`ctx.usageQuery`）和**同一个入口**。同时启用会冲突（启动报错或出现两个入口）。脚本会自动禁用官方插件，让本插件接管——**数据获取完全由本插件自己完成**，不会丢数据。
+
+想恢复官方插件？把 `packages\bundle\web-app\cordis.patch.yml` 里 `disabled-` 开头的条目改回 `- id: ...` 即可。
+
+### 3. 能 `pnpm add dsh-usage-plugin` 吗？
+
+**暂时不行**。插件还没发布到 npm，而且依赖的 DSH 官方包在 npm 上也不完整。请用上面的 GitHub + workspace 方式安装。
+
+### 4. 没有 DSH 源码仓库，只有桌面应用？
+
+插件目前需要挂进 DSH 源码仓库使用；只装了桌面应用的环境暂不支持单独安装。
+
+---
+
+## ✨ 功能特性
+
+| 功能 | 说明 |
+|---|---|
+| **分组维度**（可多选） | **日期**（按天）、**模型**（按 provider/model）、**会话**（显示中文标题）、**工作区**（只显示目录名） |
+| **排序方式** | 默认排序 / 用量从多到少 / 用量从少到多 |
+| **时间范围** | 今天 / 近 7 天 / 近 30 天 / 全部 / 自定义起止日期 |
+| **统计详情** | 条形图 + 汇总表（输入、输出、缓存读、缓存写、合计、请求数）+ 总计行 |
+| **子代理合并** | 子代理（subagent）的用量自动归入发起它的根会话，不再单列一行 |
+| **只读安全** | 从不创建/恢复代理、从不构造提示词、从不发起模型请求 |
+
+### 面板操作
+
+1. 点侧边栏底部 📊 **用量统计**
+2. 选时间范围 → 勾分组维度 → 选排序方式
+3. 看条形图和汇总表；点遮罩、× 或按 `Esc` 关闭
+
+> 面板打开瞬间会冻结统计截止时刻，打开之后产生的用量下次打开才计入。
+
+---
+
+## 🔧 手动安装（不用脚本时）
+
+```bash
+# 1. 把插件 clone 进 DSH 仓库
+git clone https://github.com/Qiongkura/dsh-usage-plugin.git \
+  D:/deepseek-harness/packages/usage/usage-plugin
+
+# 2. 禁用官方插件：编辑 packages/bundle/web-app/cordis.patch.yml
+#    找到这两段并改成（enabled: false 表示禁用）：
+#    - id: disabled-usage-query
+#      name: '@deepseek-ai/dsh-usage-query'
+#      enabled: false
+#    - id: disabled-ui-usage
+#      name: '@deepseek-ai/dsh-client-ui-usage'
+#      enabled: false
+
+# 3. 在同一个文件里注册本插件：
+#    - id: usage-plugin
+#      name: 'dsh-usage-plugin'
+
+# 4. 安装并构建
+cd D:/deepseek-harness
+pnpm install
+pnpm run build:lib:host
+pnpm run build:lib:client
+pnpm run build:web
+
+# 5. 启动
+pnpm run start:web
+```
+
+---
+
+## 🏗️ 架构
 
 ```
 ┌─────────────────────┐       ┌──────────────────────────────┐
@@ -28,84 +124,23 @@ DeepSeek Harness（DSH）的 **Token 用量统计** 附属插件：侧边栏底�
                               └──────────────────────────────┘
 ```
 
-- **`src/client/`** —— 浏览器端插件：侧边栏底部触发器 + 用量模态面板。数据通过一次一元 `usage.query` RPC 获取，插件自身不持有状态。
+- **`src/client/`** —— 浏览器端：侧边栏入口 + 用量面板。数据通过一次 `usage.query` RPC 获取。
 - **`src/index.ts`** —— 宿主端 Cordis 服务：跨会话 Token 用量聚合（`ctx.usageQuery`）。
 - **`src/server/`** —— 聚合纯函数（fold / raw / types）与 zod 契约 schema。
+
+> `usage.query` RPC 端点由 DSH 宿主（dsh-host-apiproxy）提供；本插件只提供背后的聚合服务与前端面板。
 
 ## 环境要求
 
 | 依赖 | 版本 | 说明 |
 |---|---|---|
-| DeepSeek Harness | rc.5+ | 宿主运行时（提供 `sessionQuery`、`sessionPersistence`、web GUI 插槽） |
-| Node.js | 20+ | 宿主端 |
+| DeepSeek Harness 源码仓库 | 较新版本（含 usage 域） | 宿主运行时 |
+| Node.js | 20+ | |
 | pnpm | 9+ | 构建 |
 
-> 注意：`usage.query` RPC 端点由宿主（dsh-host-apiproxy）提供，本插件只注册背后的聚合服务与前端面板，不重复注册端点。
+---
 
-## 安装与使用
-
-> ⚠️ **重要**：本插件是 DSH 官方 `ui-usage` / `usage-query` 的**增强替代品**（新增工作区分组、Token 排序、子代理合并）。安装时会**自动禁用官方两个插件**，避免 `ctx.usageQuery` 服务与侧栏入口重复冲突。想恢复官方插件时，把 `cordis.patch.yml` 中 `disabled-` 开头的条目改回即可。
-
-### 方式一：一键脚本安装（推荐）
-
-在 DSH 源码仓库所在机器上运行（Windows）：
-
-```bat
-install-into-dsh.bat G:\deepseek-harness
-```
-
-脚本会自动完成：检查宿主版本 → clone 插件进 `packages/usage/usage-plugin` → 禁用官方 usage 插件 → 注册本插件 → `pnpm install` → 构建 host/client。
-
-### 方式二：手动安装
-
-```bash
-# 1. clone 到 DSH workspace
-git clone https://github.com/Qiongkura/dsh-usage-plugin.git \
-  G:/deepseek-harness/packages/usage/usage-plugin
-
-# 2. 禁用官方插件（在 packages/bundle/web-app/cordis.patch.yml）
-#    - id: usage-query
-#      name: '@deepseek-ai/dsh-usage-query'
-#    - id: ui-usage
-#      name: '@deepseek-ai/dsh-client-ui-usage'
-#    改为：
-#    - id: disabled-usage-query
-#      name: '@deepseek-ai/dsh-usage-query'
-#      enabled: false
-#    - id: disabled-ui-usage
-#      name: '@deepseek-ai/dsh-client-ui-usage'
-#      enabled: false
-
-# 3. 注册本插件（同一文件，plugins 列表末尾追加）
-#    - id: usage-plugin
-#      name: 'dsh-usage-plugin'
-
-# 4. 安装并构建
-cd G:/deepseek-harness
-pnpm install
-pnpm run build:lib:host
-pnpm run build:lib:client
-pnpm run build:web        # 如 Web 界面尚未构建
-
-# 5. 启动
-pnpm run start:web        # 或 node apps/cli/lib/bin.js web
-```
-
-打开 http://127.0.0.1:3080，侧边栏底部即可看到「用量统计」入口。
-
-> 注意：当前**尚未发布到 npm**，所以不能 `pnpm add dsh-usage-plugin`（npm registry 404）。请用上面的 GitHub/workspace 方式安装。
-
-### 使用面板
-
-1. 打开侧边栏底部 **用量统计**（📊）入口
-2. 选择时间范围（今天 / 近 7 天 / 近 30 天 / 全部 / 自定义）
-3. 勾选分组维度（日期 / 模型 / 会话 / 工作区）
-4. 选择排序方式（默认 / 用量从多到少 / 用量从少到多）
-5. 查看条形图与汇总表；点击遮罩、× 或按 `Esc` 关闭
-
-面板打开瞬间会冻结统计截止时刻（`asOf`），打开后产生的用量在下次打开时才会计入。
-
-## 开发
+## 🛠️ 开发
 
 ```bash
 pnpm install
@@ -133,12 +168,14 @@ src/
     └── *.module.css      # 样式（CSS Modules）
 ```
 
-## 与官方 ui-usage 的关系
+---
 
-本插件是 DeepSeek Harness 官方 `@deepseek-ai/dsh-client-ui-usage` / `@deepseek-ai/dsh-usage-query` 的独立化移植，在此基础上增加了：
+## 📜 与官方 ui-usage 的关系
 
-- **工作区分组维度**（`workspace`）
-- **按 Token 用量排序**（`sortBy: tokens-desc / tokens-asc`）
+本插件源自 DeepSeek Harness 官方 `@deepseek-ai/dsh-client-ui-usage` / `@deepseek-ai/dsh-usage-query`，独立化后新增：
+
+- 工作区分组维度（`workspace`）
+- 按 Token 用量排序（`sortBy: tokens-desc / tokens-asc`）
 - 子代理用量合并到根会话
 - 工作区显示名简化（只显示目录名）
 
