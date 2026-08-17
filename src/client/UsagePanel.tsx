@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { UsageApi, UsageDimension, UsageQueryResult, UsageRow } from './usage-api.ts'
+import type { UsageApi, UsageDimension, UsageQueryResult, UsageRow, RateLimitInfo } from './usage-api.ts'
 import type { UsageKey } from './locales.ts'
 import css from './UsagePanel.module.css'
 
@@ -91,6 +91,7 @@ const QUOTA_PERIODS: readonly QuotaPeriodDef[] = [
 interface QuotaPeriodResult {
   period: QuotaPeriodDef
   used: number
+  limit: number
   pct: number
   resetAt: Date
 }
@@ -228,19 +229,45 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
   useEffect(() => {
     let cancelled = false
     const now = Date.now()
-    Promise.all(QUOTA_PERIODS.map(async (def) => {
+
+    // 1) 从 API 获取真实额度（rate-limit 响应头）
+    const rlPromise = api.usage.rateLimits().then(
+      (resp) => (cancelled ? null : (resp.result.ok ? resp.result.value : null)),
+      () => null as RateLimitInfo | null,
+    )
+
+    // 2) 查询各周期用量
+    const usagePromise = Promise.all(QUOTA_PERIODS.map(async (def) => {
       const { from, to, resetAt } = periodBounds(def, now)
       const fromStr = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
       const toStr = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, '0')}-${String(to.getDate()).padStart(2, '0')}`
       try {
         const resp = await api.usage.query({ from: fromStr, to: toStr, asOf: now, groupBy: [] })
-        if (cancelled || !resp.result.ok) return { period: def, used: 0, pct: 0, resetAt }
-        const used = resp.result.value.total.totalTokens
-        return { period: def, used, pct: Math.min(100, Math.round((used / def.limit) * 100)), resetAt }
+        if (cancelled || !resp.result.ok) return { period: def, used: 0, limit: def.limit, resetAt }
+        return { period: def, used: resp.result.value.total.totalTokens, limit: def.limit, resetAt }
       } catch {
-        return { period: def, used: 0, pct: 0, resetAt }
+        return { period: def, used: 0, limit: def.limit, resetAt }
       }
-    })).then((results) => { if (!cancelled) setQuotaData(results) })
+    }))
+
+    Promise.all([rlPromise, usagePromise]).then(([rl, usages]) => {
+      if (cancelled) return
+      const results = usages.map((u) => {
+        let limit = u.limit
+        let resetAt = u.resetAt
+        // 滚动用量：优先用 API 返回的额度和重置时间
+        if (u.period.key === 'rolling' && rl !== null) {
+          if (rl.limitTokens !== undefined && rl.limitTokens > 0) limit = rl.limitTokens
+          if (rl.resetTokens !== undefined) {
+            const parsed = Date.parse(rl.resetTokens)
+            if (!isNaN(parsed) && parsed > now) resetAt = new Date(parsed)
+          }
+        }
+        const pct = limit > 0 ? Math.min(100, Math.round((u.used / limit) * 100)) : 0
+        return { period: u.period, used: u.used, limit, pct, resetAt }
+      })
+      setQuotaData(results)
+    })
     return () => { cancelled = true }
   }, [api])
 

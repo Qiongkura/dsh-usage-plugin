@@ -38,7 +38,18 @@ export interface UsageQueryResult {
   readonly total: UsageTokenTotals
 }
 
-/** The `usage.query` remote face consumed by the panel. */
+/** API rate-limit snapshot from provider response headers. */
+export interface RateLimitInfo {
+  limitTokens?: number
+  remainingTokens?: number
+  resetTokens?: string
+  limitRequests?: number
+  remainingRequests?: number
+  resetRequests?: string
+  timestamp?: number
+}
+
+/** The `usage.query` + `usage.rateLimits` remote face consumed by the panel. */
 export interface UsageApi {
   query(payload: {
     from?: string
@@ -47,4 +58,5 @@ export interface UsageApi {
     groupBy: readonly UsageDimension[]
     sortBy?: UsageSort
   }): Promise<{ result: { ok: true; value: UsageQueryResult } | { ok: false; error: { message: string } } }>
+  rateLimits(): Promise<{ result: { ok: true; value: RateLimitInfo | null } | { ok: false; error: { message: string } } }>
 }
