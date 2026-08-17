@@ -69,6 +69,73 @@ function barsOf(data: UsageQueryResult | undefined, first: UsageDimension | unde
   }))
 }
 
+// ── 额度概览 ──
+
+type QuotaPeriod = 'rolling' | 'weekly' | 'monthly'
+
+interface QuotaPeriodDef {
+  key: QuotaPeriod
+  labelKey: UsageKey
+  /** Token limit for this period. */
+  limit: number
+  /** Rolling window duration in ms; null = calendar period. */
+  windowMs: number | null
+}
+
+const QUOTA_PERIODS: readonly QuotaPeriodDef[] = [
+  { key: 'rolling', labelKey: 'quota.rolling', limit: 100_000, windowMs: 60 * 60 * 1000 },
+  { key: 'weekly', labelKey: 'quota.weekly', limit: 10_000_000, windowMs: null },
+  { key: 'monthly', labelKey: 'quota.monthly', limit: 50_000_000, windowMs: null },
+]
+
+interface QuotaPeriodResult {
+  period: QuotaPeriodDef
+  used: number
+  pct: number
+  resetAt: Date
+}
+
+/** Compute the start/end/resetAt for a quota period relative to `now`. */
+function periodBounds(def: QuotaPeriodDef, now: Date): { from: Date; to: Date; resetAt: Date } {
+  if (def.windowMs !== null) {
+    // Rolling: last `windowMs` ending at `now`; reset at now + (windowMs - elapsed)
+    const from = new Date(now.getTime() - def.windowMs)
+    const resetAt = new Date(now.getTime() + (def.windowMs - (now.getTime() % def.windowMs)))
+    return { from, to: now, resetAt }
+  }
+  // Weekly: Monday 00:00 → Sunday 23:59:59 (reset next Monday 00:00)
+  if (def.key === 'weekly') {
+    const day = now.getDay() // 0=Sun
+    const mondayOffset = day === 0 ? -6 : 1 - day
+    const from = new Date(now)
+    from.setDate(from.getDate() + mondayOffset)
+    from.setHours(0, 0, 0, 0)
+    const resetAt = new Date(from)
+    resetAt.setDate(resetAt.getDate() + 7)
+    return { from, to: now, resetAt }
+  }
+  // Monthly: 1st → last day (reset next month 1st)
+  const from = new Date(now.getFullYear(), now.getMonth(), 1)
+  const resetAt = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+  return { from, to: now, resetAt }
+}
+
+/** Format a countdown from now to `resetAt`. */
+function formatCountdown(resetAt: Date, now: Date): string {
+  const diff = Math.max(0, resetAt.getTime() - now.getTime())
+  const days = Math.floor(diff / 86_400_000)
+  const hours = Math.floor((diff % 86_400_000) / 3_600_000)
+  if (days > 0) return `${days} 天 ${hours} 小时`
+  if (hours > 0) return `${hours} 小时 ${Math.floor((diff % 3_600_000) / 60_000)} 分钟`
+  return `${Math.floor(diff / 60_000)} 分钟`
+}
+
+function quotaFillClass(pct: number): string {
+  if (pct >= 80) return `${css.quotaFill} ${css.danger}`
+  if (pct >= 50) return `${css.quotaFill} ${css.warn}`
+  return css.quotaFill
+}
+
 /** Cell text for one dimension field: unknown models translate, absent fields dash. */
 function cellOf(row: UsageRow, dimension: UsageDimension, t: Translate): string {
   const value = dimension === 'day' ? row.day
@@ -154,6 +221,35 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
     return () => { document.removeEventListener('keydown', onKeyDown) }
   }, [onClose])
 
+  // ── 额度概览：三个周期的用量 + 倒计时 ──
+  const [quotaData, setQuotaData] = useState<QuotaPeriodResult[]>([])
+  const [tick, setTick] = useState(0) // incremented each minute to refresh countdowns
+
+  useEffect(() => {
+    let cancelled = false
+    const now = Date.now()
+    Promise.all(QUOTA_PERIODS.map(async (def) => {
+      const { from, to, resetAt } = periodBounds(def, now)
+      const fromStr = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
+      const toStr = `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, '0')}-${String(to.getDate()).padStart(2, '0')}`
+      try {
+        const resp = await api.usage.query({ from: fromStr, to: toStr, asOf: now, groupBy: [] })
+        if (cancelled || !resp.result.ok) return { period: def, used: 0, pct: 0, resetAt }
+        const used = resp.result.value.total.totalTokens
+        return { period: def, used, pct: Math.min(100, Math.round((used / def.limit) * 100)), resetAt }
+      } catch {
+        return { period: def, used: 0, pct: 0, resetAt }
+      }
+    })).then((results) => { if (!cancelled) setQuotaData(results) })
+    return () => { cancelled = true }
+  }, [api])
+
+  // Refresh countdown every 60 seconds
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   const bars = useMemo(() => barsOf(data, groupBy[0]), [data, groupBy])
   const max = Math.max(1, ...bars.map(bar => bar.value))
   const totalRequests = data === undefined ? 0 : data.rows.reduce((sum, row) => sum + row.requests, 0)
@@ -168,6 +264,29 @@ export function UsagePanel({ api, t, onClose }: UsagePanelProps) {
             ✕
           </button>
         </header>
+
+        {/* ── 额度概览：滚动 / 每周 / 每月 ── */}
+        {quotaData.length > 0 && (
+          <div className={css.quotaSection}>
+            {quotaData.map((q) => {
+              const now = Date.now()
+              return (
+                <div key={q.period.key} className={css.quotaCard}>
+                  <div className={css.quotaHead}>
+                    <span className={css.quotaLabel}>{t(q.period.labelKey)}</span>
+                    <span className={css.quotaPercent}>{q.pct}%</span>
+                  </div>
+                  <div className={css.quotaTrack}>
+                    <div className={quotaFillClass(q.pct)} style={{ width: `${q.pct}%` }} />
+                  </div>
+                  <span className={css.quotaReset}>
+                    {q.pct > 0 ? t('quota.resetIn', { time: formatCountdown(q.resetAt, new Date(now)) }) : t('quota.noData')}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <div className={css.controls}>
           <div className={css.chips} role="group" aria-label={t('panel.title')}>

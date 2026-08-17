@@ -38,6 +38,12 @@ export const zh = {
   'summary.total': '共 {tokens} tokens，{requests} 次请求',
   'panel.asOf': '（统计截止 {time}）',
   'model.unknown': '未知模型',
+  // 额度概览
+  'quota.rolling': '滚动用量',
+  'quota.weekly': '每周用量',
+  'quota.monthly': '每月用量',
+  'quota.resetIn': '重置于 {time}',
+  'quota.noData': '暂无数据',
 } as const
 
 /** English dictionary, key-identical to the Chinese source of truth. */
@@ -75,6 +81,12 @@ export const en: Record<UsageKey, string> = {
   'summary.total': '{tokens} tokens across {requests} requests',
   'panel.asOf': '(as of {time})',
   'model.unknown': 'Unknown model',
+  // Quota overview
+  'quota.rolling': 'Rolling usage',
+  'quota.weekly': 'Weekly usage',
+  'quota.monthly': 'Monthly usage',
+  'quota.resetIn': 'Resets in {time}',
+  'quota.noData': 'No data yet',
 }
 
 /** Key domain of the `usage` namespace (zh is the source of truth). */

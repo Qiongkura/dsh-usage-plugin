@@ -1,5 +1,11 @@
 # dsh-usage-plugin
 
+<div align="center">
+
+**中文** | [English](README.en.md)
+
+</div>
+
 DeepSeek Harness（DSH）的 **Token 用量统计** 插件：侧边栏底部入口 + 模态面板，查看所有会话的 Token 消耗。
 
 它是 DSH 官方「用量统计」的**增强版**——在官方功能之上新增了**工作区分组**、**按 Token 排序**、**子代理用量合并**。
