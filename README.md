@@ -6,13 +6,12 @@
 
 </div>
 
-> [!CAUTION]
-> **用量统计已知问题：宽时间范围下数据膨胀**
+> [!NOTE]
+> **已修复：宽时间范围下数据膨胀**（v0.2.2+）
 >
-> 当查询时间范围超过「今天」时（如选"近 7 天"），后端折叠逻辑（`usage-query`）会为同一日期产生**重复样本**，导致 Token 总量虚高（实测偏差达 2.4 倍）。
-> **临时规避**：面板选"今天"时数据准确；选其他范围时，显示的数字可能偏高，请以"今天"视图的数据为准确参考。
+> 早期版本中 `usage-query` 把 fork/延续会话的父历史 usage 事件复制进子日志，聚合时重复计数，导致非"今天"窗口的 Token 总量虚高（偏差达 2.4 倍）。
 >
-> 此问题的根因在 DSH `usage-query` 包的折叠/聚合链路（`scanRawUsageEvents` / `rootOf` / `aggregateSamples` 交互），需 DSH 维护者修复。修复前此警告持续有效。
+> **v0.2.2 起已按 `seedLength` / `session/end-seed` 所有权边界修复**：每个会话只计自有调用，继承前缀不再计入。根因与修复详见 [deepseek-harness/packages/usage/usage-query/src/fold.ts](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/usage/usage-query/src/fold.ts) 的 `ownedUsageSamples`。
 
 DeepSeek Harness（DSH）的 **Token 用量统计** 插件：侧边栏底部入口 + 模态面板，查看所有会话的 Token 消耗。
 
