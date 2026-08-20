@@ -7,6 +7,7 @@
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {
+  OwnershipSpec,
   TaggedSample,
   TokenTotals,
   TokenUsageView,
@@ -36,12 +37,12 @@ export function dayKey(time: number): string {
  * @param event - one session event.
  * @returns the usage sample with its `(turn, step)`, or `undefined` when the event reports none.
  */
-export function usageSampleOf(event: SessionEvent): { turn: number; step: number; usage: TokenUsageView } | undefined {
+export function usageSampleOf(event: SessionEvent): { turn: number; step: number; seq?: number; usage: TokenUsageView } | undefined {
   if (event.type === 'assistant/message' && event.data.usage !== undefined) {
-    return { turn: event.data.turn, step: event.data.step, usage: event.data.usage }
+    return { turn: event.data.turn, step: event.data.step, seq: event.seq, usage: event.data.usage }
   }
   if (event.type === 'assistant/chunk' && event.data.chunk.type === 'usage') {
-    return { turn: event.data.turn, step: event.data.step, usage: event.data.chunk.usage }
+    return { turn: event.data.turn, step: event.data.step, seq: event.seq, usage: event.data.chunk.usage }
   }
   return undefined
 }
@@ -92,12 +93,36 @@ export function foldUsageSamples(events: readonly SessionEvent[]): UsageSample[]
     lastByStep.set(key, {
       turn: sample.turn,
       step: sample.step,
+      seq: sample.seq,
       time: event.time,
       usage: { ...sample.usage },
       model,
     })
   }
   return [...lastByStep.values()]
+}
+
+/**
+ * Narrow one session's samples to its OWN calls. A fork (a session whose
+ * header carries `parentSession`) was seeded with the parent's full history —
+ * including the parent's usage events — so `seq < seedLength` is inherited
+ * prefix that must never count again on this branch. Only events at/after the
+ * boundary are the fork's own calls, later re-attributed to the root by
+ * `rootOf`. A top-level session owns everything. Legacy forks whose header
+ * lacks `seedLength` fall back to the first `session/end-seed` seq.
+ * @param samples - one session's folded samples (carrying `seq`).
+ * @param own - the session's ownership metadata.
+ * @returns samples at/after the boundary (or unchanged when undecidable).
+ */
+export function ownedUsageSamples(
+  samples: readonly UsageSample[],
+  own: OwnershipSpec,
+): UsageSample[] {
+  const boundary = own.parentSession === undefined ? 0
+    : own.seedLength !== undefined ? own.seedLength
+      : own.seedSeq
+  if (boundary === undefined || boundary <= 0) return [...samples]
+  return samples.filter(sample => sample.seq === undefined || sample.seq >= boundary)
 }
 
 /**
@@ -206,7 +231,9 @@ export function aggregateSamples(
     addTotals(group.totals, sample.usage)
   }
   const sorted = [...groups.values()]
-  const rows = (request.sortBy === undefined ? sorted.sort((a, b) => compareKeys(a.sortKey, b.sortKey)) : sorted.sort(compareByTokens(request.sortBy)))
+  const rows = (request.sortBy === undefined
+    ? sorted.sort((a, b) => compareKeys(a.sortKey, b.sortKey))
+    : sorted.sort(compareByTokens(request.sortBy)))
     .map(group => ({ ...group.parts, requests: group.requests, ...group.totals }))
   return { rows, total }
 }

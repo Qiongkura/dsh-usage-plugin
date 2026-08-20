@@ -28,6 +28,7 @@ function parseRawEvent(line: string): SessionEvent | undefined {
   try {
     if (line.includes('"request/header"')) {
       const record = JSON.parse(line) as {
+        seq?: number
         time: number
         data?: { header?: { config?: { provider?: string; model?: string } } }
       }
@@ -35,12 +36,14 @@ function parseRawEvent(line: string): SessionEvent | undefined {
       if (config?.provider === undefined || config.model === undefined) return undefined
       return {
         type: 'request/header',
+        seq: record.seq ?? 0,
         time: record.time,
         data: { header: { config: { provider: config.provider, model: config.model } }, reason: 'scan' },
       } as SessionEvent
     }
     if (line.includes('"assistant/message"')) {
       const record = JSON.parse(line) as {
+        seq?: number
         time: number
         data?: { turn: number; step: number; usage?: TokenUsageView }
       }
@@ -48,17 +51,20 @@ function parseRawEvent(line: string): SessionEvent | undefined {
       if (data?.usage === undefined) return undefined
       return {
         type: 'assistant/message',
+        seq: record.seq ?? 0,
         time: record.time,
         data: { turn: data.turn, step: data.step, usage: data.usage },
       } as SessionEvent
     }
     if (line.includes('"assistant/chunk"') && line.includes('"type":"usage"')) {
       const record = JSON.parse(line) as {
+        seq?: number
         time: number
         data: { turn: number; step: number; chunk: { type: 'usage'; usage: TokenUsageView } }
       }
       return {
         type: 'assistant/chunk',
+        seq: record.seq ?? 0,
         time: record.time,
         data: {
           turn: record.data.turn,
@@ -88,6 +94,24 @@ export function scanRawUsageEvents(content: string): SessionEvent[] {
     if (event !== undefined) events.push(event)
   }
   return events
+}
+
+/**
+ * Scan one raw artifact for the seq of its first `session/end-seed` record.
+ * A fork's seed prefix ends at that marker, so it doubles as the legacy
+ * ownership boundary when the session header carries no `seedLength`.
+ * @param content - the artifact's decoded text.
+ * @returns the first end-seed seq, or `undefined` when none exists.
+ */
+export function scanRawSeedSeq(content: string): number | undefined {
+  for (const line of content.split('\n')) {
+    if (!line.includes('"session/end-seed"')) continue
+    try {
+      const record = JSON.parse(line) as { seq?: number; type?: string }
+      if (record.type === 'session/end-seed' && typeof record.seq === 'number') return record.seq
+    } catch { /* torn line */ }
+  }
+  return undefined
 }
 
 /**

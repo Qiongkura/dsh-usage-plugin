@@ -15,9 +15,9 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
-import type { TaggedSample, UsageQueryRequest, UsageQueryResult, UsageSample } from './server/types.ts'
-import { aggregateSamples, dayKey, foldUsageSamples, UNKNOWN_MODEL, usageSampleOf, validateRequest } from './server/fold.ts'
-import { scanRawSessionTitle, scanRawUsageEvents } from './server/raw.ts'
+import type { OwnershipSpec, TaggedSample, UsageQueryRequest, UsageQueryResult, UsageSample } from './server/types.ts'
+import { aggregateSamples, dayKey, foldUsageSamples, ownedUsageSamples, UNKNOWN_MODEL, usageSampleOf, validateRequest } from './server/fold.ts'
+import { scanRawSeedSeq, scanRawSessionTitle, scanRawUsageEvents } from './server/raw.ts'
 
 export type { UsageDimension, UsageQueryRequest, UsageQueryResult, UsageRow, UsageSort } from './server/types.ts'
 
@@ -29,6 +29,16 @@ const READ_CONCURRENCY = 4
 
 /** Maximum cached per-session folds; beyond it the oldest entries are dropped. */
 const CACHE_LIMIT = 500
+
+/** Seq of the first `session/end-seed` event in a session's event log, or
+ *  `undefined` when the log carries none. Used as the legacy ownership
+ *  boundary for fork sessions whose header lacks an explicit `seedLength`. */
+function firstEndSeedSeq(events: readonly SessionEvent[]): number | undefined {
+  for (const event of events) {
+    if (event?.type === 'session/end-seed') return event.seq
+  }
+  return undefined
+}
 
 /** Incremental live-fold state for one session: events folded so far, the
  *  model active at the fold tail, the latest logged title, and the last-wins
@@ -185,7 +195,10 @@ export class UsageQuery extends Service {
       })
     const misses = plans.filter(plan => plan.cached === undefined)
     const readResults = await mapWithConcurrency(misses, READ_CONCURRENCY, async ({ record, cacheKey }) => {
-      const folded = await this.foldPersisted(sessionQuery, persistence, record.header.id)
+      const folded = await this.foldPersisted(sessionQuery, persistence, record.header.id, {
+        parentSession: record.header.parentSession,
+        seedLength: record.header.seedLength,
+      })
       if (cacheKey !== undefined) this.cache.set(cacheKey, folded)
       return folded
     })
@@ -223,7 +236,10 @@ export class UsageQuery extends Service {
     for (const record of targets) {
       const live = sessions?.get(record.header.id)
       if (live !== undefined) {
-        perSession.push(this.liveSamples(record.header.id, live.events).map(tag))
+        perSession.push(this.liveSamples(record.header.id, live.events, {
+          parentSession: record.header.parentSession,
+          seedLength: record.header.seedLength,
+        }).map(tag))
         const state = this.liveFolds.get(record.header.id)
         if (state?.title !== undefined) titles.set(record.header.id, state.title)
       }
@@ -246,13 +262,15 @@ export class UsageQuery extends Service {
    * @param events - the session's current event snapshot.
    * @returns session-tagged usage samples.
    */
-  private liveSamples(sessionId: SessionId, events: readonly SessionEvent[]): TaggedSample[] {
+  private liveSamples(sessionId: SessionId, events: readonly SessionEvent[], own: OwnershipSpec): TaggedSample[] {
     const state = this.ensureLiveFold(sessionId, events)
-    const samples: TaggedSample[] = new Array(state.byStep.size)
-    let index = 0
-    for (const sample of state.byStep.values()) {
+    const owned = ownedUsageSamples([...state.byStep.values()], { ...own, seedSeq: firstEndSeedSeq(events) })
+    const samples: TaggedSample[] = new Array(owned.length)
+    for (let index = 0; index < owned.length; index += 1) {
+      const sample = owned[index]
+      /* v8 ignore next 2 -- owned entries are always defined */
+      if (sample === undefined) continue
       samples[index] = { ...sample, sessionId }
-      index += 1
     }
     return samples
   }
@@ -288,6 +306,7 @@ export class UsageQuery extends Service {
       state.byStep.set(`${sample.turn}:${sample.step}`, {
         turn: sample.turn,
         step: sample.step,
+        seq: sample.seq,
         time: event.time,
         usage: { ...sample.usage },
         model: state.model,
@@ -316,12 +335,16 @@ export class UsageQuery extends Service {
     sessionQuery: SessionQueryEngine,
     persistence: SessionPersistence | undefined,
     sessionId: SessionId,
+    own: OwnershipSpec,
   ): Promise<PersistedFold> {
     if (persistence?.supportsRawArtifacts === true) {
       const raw = await persistence.readRaw(sessionId)
       if (raw !== undefined) {
         return {
-          samples: foldUsageSamples(scanRawUsageEvents(raw.content)).map(sample => ({ ...sample, sessionId })),
+          samples: ownedUsageSamples(
+            foldUsageSamples(scanRawUsageEvents(raw.content)),
+            { ...own, seedSeq: scanRawSeedSeq(raw.content) },
+          ).map(sample => ({ ...sample, sessionId })),
           title: scanRawSessionTitle(raw.content),
         }
       }
@@ -337,7 +360,10 @@ export class UsageQuery extends Service {
       }
     }
     return {
-      samples: foldUsageSamples(log.events).map(sample => ({ ...sample, sessionId })),
+      samples: ownedUsageSamples(
+        foldUsageSamples(log.events),
+        { ...own, seedSeq: firstEndSeedSeq(log.events) },
+      ).map(sample => ({ ...sample, sessionId })),
       title,
     }
   }

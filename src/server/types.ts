@@ -35,12 +35,28 @@ export interface UsageSample {
   readonly turn: number
   /** Step that carried the usage. */
   readonly step: number
+  /** Event seq in the owning session log (raw scan line order); present for
+   *  persisted/live sources, absent for ad-hoc test samples. Consumers use it
+   *  to distinguish a fork's own calls from its inherited seed prefix. */
+  readonly seq?: number | undefined
   /** Event timestamp in Unix epoch milliseconds (the usage event's own time). */
   readonly time: number
   /** Provider-reported token buckets. */
   readonly usage: Readonly<TokenUsageView>
   /** `provider/model` of the newest request header before the sample, or `'unknown'`. */
   readonly model: string
+}
+
+/**
+ * Ownership metadata deciding which calls belong to a session itself:
+ * a fork's inherited seed prefix (`seq < seedLength`) never counts on its own
+ * branch. `seedSeq` is the legacy alternative read from the first
+ * `session/end-seed` when the header lacks `seedLength`.
+ */
+export interface OwnershipSpec {
+  readonly parentSession?: string | undefined
+  readonly seedLength?: number | undefined
+  readonly seedSeq?: number | undefined
 }
 
 /** A usage sample tagged with its owning session id for cross-session aggregation. */
